@@ -8,8 +8,8 @@ one connection.
 
 It is a thin, stateless front for Brain's REST surface (`/v1/*`): point it at the
 hosted **gateway** or a self-hosted **brain-edge** — the JSON contract is the
-same. Every tool is scoped to a `customer_id`, so one deployment serves many
-isolated end customers.
+same. Every tool takes a `customer_id` for per-customer isolation (see
+[Scoping](#scoping) for how that behaves on each backend).
 
 ## Tools
 
@@ -46,6 +46,20 @@ Liveness: `curl -fsS localhost:3333/healthz`.
 | `BRAIN_MCP_PORT` | no | `3333` | Listen port. |
 | `BRAIN_MCP_HOST` | no | `0.0.0.0` | Bind interface. |
 | `BRAIN_MCP_REQUEST_TIMEOUT_MS` | no | `30000` | Per-request backend timeout. |
+
+## Scoping
+
+`customer_id` isolates each end customer's memories. How it takes effect depends
+on the backend:
+
+- **Hosted gateway** — the `customer_id` rides the `x-brain-agent` scope header
+  and the gateway runs the request as that customer (`act_as`). One service key
+  (with `may_act`) serves **many isolated customers**. This is the intended mode.
+- **Self-hosted brain-edge** — brain-edge scopes purely by the API key's bound
+  identity and **ignores** the scope headers today. So a single edge key maps to
+  a single customer: for multi-customer self-host, run one key per customer (or
+  put the gateway in front). `customer_id` is still required by the tools for a
+  consistent surface, but does not isolate on edge alone.
 
 ## Auth
 

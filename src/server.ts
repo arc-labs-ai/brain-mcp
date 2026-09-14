@@ -78,10 +78,7 @@ export function buildServer(backend: BrainBackend): McpServer {
         "confidence — stale and contradicted facts are already resolved server-side.",
       inputSchema: {
         customer_id: customerId,
-        query: z
-          .string()
-          .min(1)
-          .describe("What you want to know about this customer."),
+        query: z.string().min(1).describe("What you want to know about this customer."),
         max_results: z
           .number()
           .int()
