@@ -1,0 +1,67 @@
+{
+  "name": "@brain-db/mcp",
+  "version": "0.1.0",
+  "description": "Managed MCP server for the Brain memory database. Exposes remember / recall / forget / whoami as MCP tools over remote Streamable HTTP, in front of the Brain gateway (hosted) or brain-edge (self-host).",
+  "license": "Apache-2.0",
+  "author": "Niraj Georgian",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "brain-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arc-labs-ai/brain-mcp.git"
+  },
+  "homepage": "https://github.com/arc-labs-ai/brain-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/arc-labs-ai/brain-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "brain",
+    "memory",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.19.1",
+    "express": "^4.21.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/express": "^4.17.23",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
