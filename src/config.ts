@@ -31,6 +31,34 @@ export interface Config {
   host: string;
   /** Per-request timeout to the backend, milliseconds. */
   requestTimeoutMs: number;
+  /** OAuth 2.1 resource-server config, or `undefined` when disabled (M1 mode:
+   *  the MCP endpoint is unauthenticated and must sit behind a trust boundary). */
+  oauth?: OAuthConfig;
+}
+
+/**
+ * OAuth 2.1 resource-server settings. When present, every MCP request must carry
+ * a valid bearer access token issued by {@link OAuthConfig.issuer}; the token's
+ * tenant claim selects the Brain namespace. The MCP server never mints tokens —
+ * it validates them (RFC 9728 resource server) and points clients at the issuer.
+ */
+export interface OAuthConfig {
+  /** Authorization-server issuer URL clients are directed to (RFC 9728
+   *  `authorization_servers`), and the required JWT `iss`. */
+  issuer: string;
+  /** JWKS endpoint used to verify token signatures. */
+  jwksUri: string;
+  /** Resource identifier (RFC 8707) this server accepts tokens for — the JWT
+   *  `aud` must include it. Normally the server's public URL. */
+  audience: string;
+  /** Externally-reachable base URL of this MCP server, for the protected-resource
+   *  metadata document and the `WWW-Authenticate` hint. */
+  publicUrl: string;
+  /** Scopes a token must carry (empty = any valid token). */
+  requiredScopes: string[];
+  /** JWT claim carrying the tenant namespace; falls back to {@link Config.namespace}
+   *  when the claim is absent. */
+  namespaceClaim: string;
 }
 
 function required(name: string): string {
@@ -75,5 +103,24 @@ export function loadConfig(): Config {
     port,
     host: optional("BRAIN_MCP_HOST", "0.0.0.0"),
     requestTimeoutMs,
+    oauth: loadOAuthConfig(),
+  };
+}
+
+function isTruthy(v: string | undefined): boolean {
+  return v !== undefined && ["1", "true", "yes", "on"].includes(v.trim().toLowerCase());
+}
+
+/** Load the OAuth block when `BRAIN_MCP_OAUTH_ENABLED` is set; else `undefined`. */
+function loadOAuthConfig(): OAuthConfig | undefined {
+  if (!isTruthy(process.env.BRAIN_MCP_OAUTH_ENABLED)) return undefined;
+  const scopesRaw = optional("BRAIN_MCP_OAUTH_SCOPES", "");
+  return {
+    issuer: stripTrailingSlash(required("BRAIN_MCP_OAUTH_ISSUER")),
+    jwksUri: required("BRAIN_MCP_OAUTH_JWKS_URI"),
+    audience: required("BRAIN_MCP_OAUTH_AUDIENCE"),
+    publicUrl: stripTrailingSlash(required("BRAIN_MCP_PUBLIC_URL")),
+    requiredScopes: scopesRaw ? scopesRaw.split(/[,\s]+/).filter(Boolean) : [],
+    namespaceClaim: optional("BRAIN_MCP_OAUTH_NAMESPACE_CLAIM", "namespace"),
   };
 }

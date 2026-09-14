@@ -63,13 +63,38 @@ on the backend:
 
 ## Auth
 
-**M1 (current):** the server holds one bearer API key for the backend; the MCP
-endpoint itself is unauthenticated, so run it behind your own gateway/network
-boundary. Per-customer isolation rides the scope headers.
+The server holds one bearer API key for the **backend** (its own service
+principal). How the **MCP endpoint** itself is protected depends on whether OAuth
+is enabled:
 
-**M2 (planned):** OAuth 2.1 (PKCE + authorization-server metadata + dynamic
-client registration) on the MCP endpoint, so an MCP client authorizes directly
-and its token maps to a tenant — the enterprise-review differentiator.
+**No-auth (default).** The MCP endpoint is unauthenticated — run it behind your
+own gateway/network boundary. Set `BRAIN_MCP_NAMESPACE` for the namespace and
+scope per customer via the tool `customer_id`.
+
+**OAuth 2.1 (`BRAIN_MCP_OAUTH_ENABLED=true`).** The server becomes an OAuth 2.1
+resource server (RFC 9728):
+
+- It publishes `/.well-known/oauth-protected-resource` pointing MCP clients at
+  your authorization server (`BRAIN_MCP_OAUTH_ISSUER`) — Arc auth or any OIDC IdP.
+  The AS owns PKCE / dynamic client registration / consent; this server never
+  mints tokens.
+- Every request needs a valid bearer JWT (verified against the issuer's JWKS,
+  matching `iss` + `aud`); missing/invalid → `401` with a `WWW-Authenticate`
+  hint to the metadata.
+- The token's tenant claim (`BRAIN_MCP_OAUTH_NAMESPACE_CLAIM`, default
+  `namespace`) selects the Brain namespace, so one deployment serves many
+  tenants. Brain is still called with the service key + `act_as` — the user token
+  authorizes the *caller*, not the Brain connection.
+
+| Env var | Required (OAuth) | Default | Meaning |
+|---|---|---|---|
+| `BRAIN_MCP_OAUTH_ENABLED` | — | `false` | Turn OAuth on. |
+| `BRAIN_MCP_OAUTH_ISSUER` | yes | — | Authorization-server issuer URL (also required JWT `iss`). |
+| `BRAIN_MCP_OAUTH_JWKS_URI` | yes | — | JWKS endpoint for token verification. |
+| `BRAIN_MCP_OAUTH_AUDIENCE` | yes | — | Resource id tokens must target (JWT `aud`). |
+| `BRAIN_MCP_PUBLIC_URL` | yes | — | This server's externally-reachable base URL. |
+| `BRAIN_MCP_OAUTH_SCOPES` | no | (any) | Space/comma list of scopes a token must carry. |
+| `BRAIN_MCP_OAUTH_NAMESPACE_CLAIM` | no | `namespace` | JWT claim → Brain namespace. |
 
 ## License
 
