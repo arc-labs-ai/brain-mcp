@@ -10,7 +10,7 @@ const testConfig: Config = {
   apiKey: "test-key",
   namespace: "test",
   namespaceHeader: "x-brain-namespace",
-  scopeHeader: "x-brain-agent",
+  scopeHeader: "x-brain-space",
   port: 0,
   host: "127.0.0.1",
   requestTimeoutMs: 1000,

@@ -22,8 +22,8 @@ export interface Config {
   namespace: string;
   /** Header carrying the namespace slug (default `x-brain-namespace`). */
   namespaceHeader: string;
-  /** Header carrying the per-customer space id (default `x-brain-agent`; renamed
-   *  to `x-brain-space` once the gateway control-plane rename lands). */
+  /** Header carrying the per-customer space id (default `x-brain-space`; the
+   *  gateway also still accepts the legacy `x-brain-agent` alias). */
   scopeHeader: string;
   /** Port the Streamable HTTP transport listens on. */
   port: number;
@@ -99,7 +99,7 @@ export function loadConfig(): Config {
     apiKey: required("BRAIN_MCP_API_KEY"),
     namespace: required("BRAIN_MCP_NAMESPACE"),
     namespaceHeader: optional("BRAIN_MCP_NAMESPACE_HEADER", "x-brain-namespace"),
-    scopeHeader: optional("BRAIN_MCP_SCOPE_HEADER", "x-brain-agent"),
+    scopeHeader: optional("BRAIN_MCP_SCOPE_HEADER", "x-brain-space"),
     port,
     host: optional("BRAIN_MCP_HOST", "0.0.0.0"),
     requestTimeoutMs,

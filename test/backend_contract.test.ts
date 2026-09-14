@@ -78,7 +78,7 @@ function makeConfig(): Config {
     apiKey: "brain_test_key",
     namespace: "acme",
     namespaceHeader: "x-brain-namespace",
-    scopeHeader: "x-brain-agent",
+    scopeHeader: "x-brain-space",
     port: 0,
     host: "127.0.0.1",
     requestTimeoutMs: 2000,
@@ -108,7 +108,7 @@ describe("brain-mcp → /v1/* contract", () => {
     expect(req?.url).toBe("/v1/memories");
     expect(req?.headers.authorization).toBe("Bearer brain_test_key");
     expect(req?.headers["x-brain-namespace"]).toBe("acme");
-    expect(req?.headers["x-brain-agent"]).toBe("cust-1");
+    expect(req?.headers["x-brain-space"]).toBe("cust-1");
     expect(req?.body).toEqual({ text: "Ada likes dark roast" });
     await c.close();
   });
@@ -123,7 +123,7 @@ describe("brain-mcp → /v1/* contract", () => {
     const req = captured.at(-1);
     expect(req?.method).toBe("POST");
     expect(req?.url).toBe("/v1/recall");
-    expect(req?.headers["x-brain-agent"]).toBe("cust-1");
+    expect(req?.headers["x-brain-space"]).toBe("cust-1");
     expect(req?.body).toEqual({ query: "coffee?", max_results: 5 });
     const text = (res.content as Array<{ type: string; text: string }>)[0]?.text ?? "";
     expect(text).toContain("dark roast");
@@ -151,7 +151,7 @@ describe("brain-mcp → /v1/* contract", () => {
     const req = captured.at(-1);
     expect(req?.method).toBe("GET");
     expect(req?.url).toBe("/v1/whoami");
-    expect(req?.headers["x-brain-agent"]).toBe("cust-1");
+    expect(req?.headers["x-brain-space"]).toBe("cust-1");
     await c.close();
   });
 });

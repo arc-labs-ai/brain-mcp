@@ -75,7 +75,7 @@ beforeAll(async () => {
     apiKey: "brain_service_key",
     namespace: "default-ns",
     namespaceHeader: "x-brain-namespace",
-    scopeHeader: "x-brain-agent",
+    scopeHeader: "x-brain-space",
     port: 0,
     host: "127.0.0.1",
     requestTimeoutMs: 2000,
@@ -157,6 +157,6 @@ describe("brain-mcp OAuth resource server", () => {
     expect(recall).toBeDefined();
     // The namespace came from the token claim, not the server default.
     expect(recall?.headers["x-brain-namespace"]).toBe("tenant-x");
-    expect(recall?.headers["x-brain-agent"]).toBe("cust-42");
+    expect(recall?.headers["x-brain-space"]).toBe("cust-42");
   });
 });

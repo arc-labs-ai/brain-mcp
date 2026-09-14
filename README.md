@@ -42,7 +42,7 @@ Liveness: `curl -fsS localhost:3333/healthz`.
 | `BRAIN_MCP_API_KEY` | yes | — | Bearer key sent to the backend. |
 | `BRAIN_MCP_NAMESPACE` | yes | — | Namespace slug scope. |
 | `BRAIN_MCP_NAMESPACE_HEADER` | no | `x-brain-namespace` | Namespace scope header. |
-| `BRAIN_MCP_SCOPE_HEADER` | no | `x-brain-agent` | Per-customer scope header. |
+| `BRAIN_MCP_SCOPE_HEADER` | no | `x-brain-space` | Per-customer scope header (gateway also accepts the legacy `x-brain-agent`). |
 | `BRAIN_MCP_PORT` | no | `3333` | Listen port. |
 | `BRAIN_MCP_HOST` | no | `0.0.0.0` | Bind interface. |
 | `BRAIN_MCP_REQUEST_TIMEOUT_MS` | no | `30000` | Per-request backend timeout. |
@@ -52,7 +52,7 @@ Liveness: `curl -fsS localhost:3333/healthz`.
 `customer_id` isolates each end customer's memories. How it takes effect depends
 on the backend:
 
-- **Hosted gateway** — the `customer_id` rides the `x-brain-agent` scope header
+- **Hosted gateway** — the `customer_id` rides the `x-brain-space` scope header
   and the gateway runs the request as that customer (`act_as`). One service key
   (with `may_act`) serves **many isolated customers**. This is the intended mode.
 - **Self-hosted brain-edge** — brain-edge scopes purely by the API key's bound
