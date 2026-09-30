@@ -1,6 +1,6 @@
 {
   "name": "@brain-db/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Managed MCP server for the Brain memory database. Exposes remember / recall / forget / whoami as MCP tools over remote Streamable HTTP, in front of the Brain gateway (hosted) or brain-edge (self-host).",
   "license": "Apache-2.0",
   "author": "Niraj Georgian",
