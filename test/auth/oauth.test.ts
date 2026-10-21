@@ -10,8 +10,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { type JWK, SignJWT, exportJWK, generateKeyPair } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Config } from "../src/config.js";
-import { buildApp } from "../src/index.js";
+import type { Config } from "../../src/config.js";
+import { buildApp } from "../../src/index.js";
 
 const ISSUER = "https://auth.test.example";
 const AUDIENCE = "https://mcp.test.example";

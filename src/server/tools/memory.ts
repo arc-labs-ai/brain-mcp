@@ -1,49 +1,16 @@
 /**
- * The MCP server definition: a deliberately tiny surface of four tools
- * (`remember`, `recall`, `forget`, `whoami`). Tool-definition bloat is the #1
- * reason agents uninstall an MCP server, so this stays minimal — richer
- * typed-graph queries live behind the SDK/REST, not here.
+ * Storing, retrieving and removing memories — the core loop most agents need.
+ *
+ * Registered onto a server built in `../index.ts`; see that file for why the
+ * surface is shaped this way and which operations are deliberately absent.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { BackendError, type BrainBackend } from "./backend.js";
+import type { BrainBackend } from "../../backend/index.js";
+import { customerId, fail, ok } from "../result.js";
 
-const SERVER_NAME = "brain-mcp";
-const SERVER_VERSION = "0.1.0";
-
-/** Render a successful tool result as pretty JSON text content. */
-function ok(value: unknown): CallToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
-}
-
-/** Render a failed tool call so the agent sees an actionable message. */
-function fail(err: unknown): CallToolResult {
-  const message =
-    err instanceof BackendError
-      ? err.message
-      : err instanceof Error
-        ? err.message
-        : String(err);
-  return { content: [{ type: "text", text: `error: ${message}` }], isError: true };
-}
-
-const customerId = z
-  .string()
-  .min(1)
-  .describe(
-    "Stable id of the end customer / user this memory belongs to. Every tool is " +
-      "scoped to one customer so their memories never leak across customers.",
-  );
-
-/**
- * Build a fresh {@link McpServer} wired to `backend`. In stateless HTTP mode a
- * new server is built per request, so this is called on each POST.
- */
-export function buildServer(backend: BrainBackend): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
-
+export function registerMemoryTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
     "remember",
     {
@@ -67,7 +34,6 @@ export function buildServer(backend: BrainBackend): McpServer {
       }
     },
   );
-
   server.registerTool(
     "recall",
     {
@@ -96,7 +62,6 @@ export function buildServer(backend: BrainBackend): McpServer {
       }
     },
   );
-
   server.registerTool(
     "forget",
     {
@@ -125,26 +90,47 @@ export function buildServer(backend: BrainBackend): McpServer {
       }
     },
   );
-
   server.registerTool(
-    "whoami",
+    "list_memories",
     {
-      title: "Who am I",
+      title: "List memories",
       description:
-        "Report the effective identity (namespace + customer scope) a request " +
-        "runs as. Useful to confirm the server is scoped to the intended customer.",
+        "Page through what is stored for a customer, newest first. Use when you " +
+        "need to see what exists rather than answer a question — recall is for " +
+        "questions, this is for inventory.",
       inputSchema: {
         customer_id: customerId,
+        limit: z.number().int().min(1).max(200).optional().describe("Page size."),
+        cursor: z.string().optional().describe("Opaque cursor from a previous page."),
       },
     },
-    async ({ customer_id }) => {
+    async ({ customer_id, limit, cursor }) => {
       try {
-        return ok(await backend.whoami(customer_id));
+        return ok(await backend.listMemories(customer_id, { limit, cursor }));
       } catch (err) {
         return fail(err);
       }
     },
   );
-
-  return server;
+  server.registerTool(
+    "inspect_memory",
+    {
+      title: "Inspect memory",
+      description:
+        "Everything behind one memory: the typed facts extracted from it, its " +
+        "provenance, and how it scored. Use when an answer looks wrong and you " +
+        "need to see why that memory was or was not used.",
+      inputSchema: {
+        customer_id: customerId,
+        memory_id: z.string().min(1).describe("The memory id to inspect."),
+      },
+    },
+    async ({ customer_id, memory_id }) => {
+      try {
+        return ok(await backend.inspectMemory(customer_id, memory_id));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
 }

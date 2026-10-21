@@ -24,10 +24,14 @@ import express, {
   type RequestHandler,
   type Response,
 } from "express";
-import { JwtTokenVerifier, namespaceFrom, protectedResourceMetadata } from "./auth.js";
-import { BrainBackend } from "./backend.js";
-import { type Config, ConfigError, loadConfig } from "./config.js";
-import { buildServer } from "./server.js";
+import {
+  JwtTokenVerifier,
+  namespaceFrom,
+  protectedResourceMetadata,
+} from "./auth/index.js";
+import { BrainBackend } from "./backend/index.js";
+import { type Config, ConfigError, loadConfig } from "./config/index.js";
+import { buildServer } from "./server/index.js";
 
 const JSONRPC_METHOD_NOT_ALLOWED = -32000;
 

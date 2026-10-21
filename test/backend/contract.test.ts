@@ -11,9 +11,9 @@ import { type IncomingMessage, type Server, createServer } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BrainBackend } from "../src/backend.js";
-import type { Config } from "../src/config.js";
-import { buildServer } from "../src/server.js";
+import { BrainBackend } from "../../src/backend/index.js";
+import type { Config } from "../../src/config/index.js";
+import { buildServer } from "../../src/server/index.js";
 
 interface Captured {
   method: string;
