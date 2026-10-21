@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.2.0...v0.2.1) (2026-10-21)
+
+
+### Fixes
+
+* **package:** drop the ./ from the bin path so npm stops rewriting it ([088eacb](https://github.com/arc-labs-ai/brain-mcp/commit/088eacb5a3150c927b1b4fbfca53d9fab535ae87))
+
 ## [0.2.0](https://github.com/arc-labs-ai/brain-mcp/compare/v0.1.1...v0.2.0) (2026-10-21)
 
 
