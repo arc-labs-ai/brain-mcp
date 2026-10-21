@@ -1,6 +1,6 @@
 {
   "name": "@brain-db/mcp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Managed MCP server for the Brain memory database. Exposes Brain's tenant surface — memory, reasoning, typed entities, graph, schema, identity — as 25 MCP tools over remote Streamable HTTP, in front of the Brain gateway (hosted) or brain-edge (self-host).",
   "license": "Apache-2.0",
   "author": "Niraj Georgian",
@@ -16,7 +16,11 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/arc-labs-ai/brain-mcp.git"
@@ -39,7 +43,13 @@
     "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["brain", "memory", "mcp", "model-context-protocol", "ai-agents"],
+  "keywords": [
+    "brain",
+    "memory",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents"
+  ],
   "engines": {
     "node": ">=18"
   },
