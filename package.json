@@ -16,7 +16,11 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/arc-labs-ai/brain-mcp.git"
@@ -39,7 +43,13 @@
     "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["brain", "memory", "mcp", "model-context-protocol", "ai-agents"],
+  "keywords": [
+    "brain",
+    "memory",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents"
+  ],
   "engines": {
     "node": ">=18"
   },
