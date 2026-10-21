@@ -3,6 +3,7 @@
   "packages": {
     ".": {
       "release-type": "node",
+      "bump-minor-pre-major": true,
       "package-name": "@brain-db/mcp",
       "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,

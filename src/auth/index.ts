@@ -9,7 +9,7 @@ import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.
 import type { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { type JWTPayload, createRemoteJWKSet, jwtVerify } from "jose";
-import type { OAuthConfig } from "./config.js";
+import type { OAuthConfig } from "../config/index.js";
 
 /** Scopes from a JWT: OAuth `scope` (space-delimited) or `scp`/`scopes` arrays. */
 function parseScopes(payload: JWTPayload): string[] {
