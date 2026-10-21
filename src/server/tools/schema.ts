@@ -37,7 +37,20 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
         "so a malformed document is caught before it changes anything.",
       inputSchema: {
         customer_id: customerId,
-        schema_document: z.string().min(1).describe("The schema document to validate."),
+        schema_document: z
+          .string()
+          .min(1)
+          .describe(
+            "The schema document, written in Brain's schema DSL \u2014 NOT JSON. " +
+              "A JSON document is rejected with `syntax error at 1:1: expected " +
+              "schema`. Example:\n\n" +
+              "namespace acme\n" +
+              "define entity_type Person { attributes {} }\n" +
+              "define entity_type Org { attributes {} }\n" +
+              "define predicate works_at { kind: Fact subject: Entity<Person> object: Entity<Org> }\n\n" +
+              "The `namespace` line must name this customer's own namespace. " +
+              "Call get_schema first to see what is already declared.",
+          ),
       },
     },
     async ({ customer_id, schema_document }) => {
@@ -58,7 +71,20 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
         "Replacing a schema destructively is not available here.",
       inputSchema: {
         customer_id: customerId,
-        schema_document: z.string().min(1).describe("The schema document to merge."),
+        schema_document: z
+          .string()
+          .min(1)
+          .describe(
+            "The schema document, written in Brain's schema DSL \u2014 NOT JSON. " +
+              "A JSON document is rejected with `syntax error at 1:1: expected " +
+              "schema`. Example:\n\n" +
+              "namespace acme\n" +
+              "define entity_type Person { attributes {} }\n" +
+              "define entity_type Org { attributes {} }\n" +
+              "define predicate works_at { kind: Fact subject: Entity<Person> object: Entity<Org> }\n\n" +
+              "The `namespace` line must name this customer's own namespace. " +
+              "Call get_schema first to see what is already declared.",
+          ),
       },
     },
     async ({ customer_id, schema_document }) => {

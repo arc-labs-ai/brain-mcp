@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
@@ -27,6 +28,26 @@ async function connectedClient(): Promise<Client> {
 }
 
 describe("brain-mcp server", () => {
+  /**
+   * `serverInfo.version` is what a client reports as the server it is talking
+   * to, and it is hand-written in src/server/index.ts because the published
+   * layout puts package.json outside dist/. It silently drifted once already:
+   * 0.1.1 shipped announcing 0.1.0. release-please stamps it through the
+   * `x-release-please-version` annotation; this fails if that ever stops
+   * happening, rather than leaving a client to believe the wrong version.
+   */
+  it("announces the version in package.json", async () => {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    const client = await connectedClient();
+    expect(client.getServerVersion()).toEqual({
+      name: "brain-mcp",
+      version: pkg.version,
+    });
+    await client.close();
+  });
+
   /**
    * The surface is stated, not counted. A route added to the edge without a
    * tool here, or a tool added without being considered, shows up as a diff on

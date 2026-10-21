@@ -27,9 +27,19 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
           .number()
           .int()
           .min(1)
-          .max(50)
+          // Brain's planner refuses anything above its own
+          // `max_traversal_depth`, which defaults to 10. The schema advertised
+          // 50, so an agent reading it would pick a value in 11..50, pass
+          // validation here, and be refused by the server with
+          // `50 exceeds max_traversal_depth = 10`. Matching the server's
+          // default keeps the schema honest; a deployment that raises the
+          // limit just makes this conservative rather than wrong.
+          .max(10)
           .optional()
-          .describe("Cap on plan length."),
+          .describe(
+            "Cap on plan length, 1-10. Brain refuses more than its " +
+              "max_traversal_depth (default 10).",
+          ),
       },
     },
     async ({ customer_id, start, goal, max_steps }) => {

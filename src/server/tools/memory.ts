@@ -23,7 +23,16 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         content: z
           .string()
           .min(1)
-          .describe("The text to remember (a fact, message, or event)."),
+          // The MCP transport caps a request body at 1 MB. Over that, express
+          // rejects the POST with an HTML error page and the MCP client
+          // *throws* — the agent gets a transport crash, not a tool error it
+          // can read and act on. Capping below that turns it into an ordinary
+          // schema error naming the offending argument.
+          .max(262_144, "content must be at most 262144 characters (~256 KB)")
+          .describe(
+            "The text to remember (a fact, message, or event). Up to ~256 KB; " +
+              "split anything larger into separate memories.",
+          ),
       },
     },
     async ({ customer_id, content }) => {
@@ -100,7 +109,11 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         "questions, this is for inventory.",
       inputSchema: {
         customer_id: customerId,
-        limit: z.number().int().min(1).max(200).optional().describe("Page size."),
+        // Brain's MEMORY_LIST caps the page at 100 (`handlers/memory_list.rs`,
+        // MAX_LIMIT). Advertising 200 meant 101..200 passed validation here
+        // and were refused by the server with `limit must be in 1..=100` —
+        // the schema promising a page size the backend will not serve.
+        limit: z.number().int().min(1).max(100).optional().describe("Page size, 1-100."),
         cursor: z.string().optional().describe("Opaque cursor from a previous page."),
       },
     },
@@ -118,8 +131,11 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
       title: "Inspect memory",
       description:
         "Everything behind one memory: the typed facts extracted from it, its " +
-        "provenance, and how it scored. Use when an answer looks wrong and you " +
-        "need to see why that memory was or was not used.",
+        "provenance, how it scored, and `edges` — the links to and from other " +
+        "memories, including any you asserted with `link`. This is the only " +
+        "way to read those back; `graph` is a different layer (typed entities " +
+        "and relations) and never shows them. Use when an answer looks wrong " +
+        "and you need to see why that memory was or was not used.",
       inputSchema: {
         customer_id: customerId,
         memory_id: z.string().min(1).describe("The memory id to inspect."),

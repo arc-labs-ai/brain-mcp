@@ -18,7 +18,9 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
       description:
         "Connect two memories with a typed edge (caused, followed_by, " +
         "derived_from, similar_to, contradicts, supports, references, part_of). " +
-        "Use when the relationship is real but neither memory states it.",
+        "Use when the relationship is real but neither memory states it. " +
+        "Read the result back with inspect_memory, whose `edges` lists the " +
+        "links in both directions.",
       inputSchema: {
         customer_id: customerId,
         source: z.string().min(1).describe("Source memory id."),
@@ -60,7 +62,9 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
       title: "Read the graph",
       description:
         "A page of the customer's knowledge graph — entities and the relations " +
-        "between them. Use to see structure; use recall to answer a question.",
+        "between them. Use to see structure; use recall to answer a question. " +
+        "This is the typed-entity layer: edges asserted with `link` join two " +
+        "memories and do NOT appear here — read those from inspect_memory.",
       inputSchema: {
         customer_id: customerId,
         limit: z.number().int().min(1).max(200).optional().describe("Page size."),

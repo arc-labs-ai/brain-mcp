@@ -120,3 +120,49 @@ describe("brain-mcp URL construction", () => {
     expect(qs.get("limit")).toBe("25");
   });
 });
+
+describe("response hygiene", () => {
+  it("summarises the embedding instead of spending the agent's context on it", async () => {
+    // Measured live: artifact.vector was 4,716 of 8,701 characters — 54% of
+    // the response — and 384 raw floats are not actionable for an agent.
+    const vector = Array.from({ length: 384 }, () => 0.05);
+    const server = createServer((_req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify({
+          found: true,
+          memory_id: "42",
+          text: "Ada likes dark roast",
+          artifact: { vector, record: { kind: 0 }, graph: { nodes: [], edges: [] } },
+        }),
+      );
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const addr = server.address();
+    if (addr === null || typeof addr === "string") throw new Error("no port");
+    const backend = new BrainBackend({
+      backendUrl: `http://127.0.0.1:${addr.port}`,
+      apiKey: "brain_test_key",
+      namespace: "acme",
+      namespaceHeader: "x-brain-namespace",
+      scopeHeader: "x-brain-customer",
+      requestTimeoutMs: 5000,
+    } as Config);
+
+    const out = await backend.inspectMemory("c1", "42");
+    const artifact = out.artifact as Record<string, unknown>;
+    const summary = artifact.vector as Record<string, unknown>;
+
+    expect(Array.isArray(summary)).toBe(false);
+    expect(summary.dimensions).toBe(384);
+    // sqrt(384 * 0.05^2) = 0.9798
+    expect(summary.magnitude).toBeCloseTo(0.9798, 3);
+    // Everything else survives untouched.
+    expect(out.text).toBe("Ada likes dark roast");
+    expect(artifact.graph).toEqual({ nodes: [], edges: [] });
+    // And the response is no longer dominated by numbers.
+    expect(JSON.stringify(out).length).toBeLessThan(400);
+
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+});
