@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/arc-labs-ai/brain-mcp/compare/v0.1.1...v0.2.0) (2026-10-21)
+
+
+### Features
+
+* **transport:** serve MCP over stdio, and stop wasting the agent's context ([fdcfdd5](https://github.com/arc-labs-ai/brain-mcp/commit/fdcfdd5dd293aba9c0e8c4e8c6693e3252c5d47a))
+
 ## [0.1.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.1.0...v0.1.1) (2026-10-21)
 
 
