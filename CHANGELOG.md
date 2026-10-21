@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.1.0...v0.1.1) (2026-10-21)
+
+
+### Fixes
+
+* **ci:** stop linting the files release-please owns ([2814f31](https://github.com/arc-labs-ai/brain-mcp/commit/2814f3163f64a94640bd447f4982591b4ac3c22d))
+
 ## 0.1.0 (2026-10-21)
 
 
