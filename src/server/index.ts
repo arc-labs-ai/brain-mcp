@@ -41,7 +41,12 @@ import { registerMemoryTools } from "./tools/memory.js";
 import { registerSchemaTools } from "./tools/schema.js";
 
 const SERVER_NAME = "brain-mcp";
-const SERVER_VERSION = "0.1.0";
+// Reported to the client as `serverInfo.version` on initialize, so it has to
+// track package.json. It is hand-written rather than imported because the
+// published layout puts package.json outside dist/; release-please stamps it
+// via the annotation, which is why this file is in `extra-files`. It had
+// already drifted once -- 0.1.1 shipped reporting 0.1.0.
+const SERVER_VERSION = "0.1.1"; // x-release-please-version
 
 /**
  * Build a fresh {@link McpServer} wired to `backend`. In stateless HTTP mode a

@@ -59,6 +59,38 @@ function withQuery(path: string, params: Record<string, unknown>): string {
   return s ? `${path}?${s}` : path;
 }
 
+/**
+ * Replace the raw embedding in an inspect response with a description of it.
+ *
+ * Measured against a live server, `artifact.vector` was 4,716 of 8,701
+ * characters — 54% of the response — and it is 384 floats an agent can do
+ * nothing with. Every `inspect_memory` call spent most of its context budget
+ * on noise. The shape and magnitude are kept, because "is there an embedding
+ * and is it sane" is the only question the raw numbers could answer.
+ */
+function summariseArtifact(raw: Record<string, unknown>): Record<string, unknown> {
+  const artifact = raw.artifact;
+  if (typeof artifact !== "object" || artifact === null) return raw;
+  const a = artifact as Record<string, unknown>;
+  if (!Array.isArray(a.vector)) return raw;
+
+  const vector = a.vector as unknown[];
+  let sumSquares = 0;
+  for (const v of vector) if (typeof v === "number") sumSquares += v * v;
+
+  return {
+    ...raw,
+    artifact: {
+      ...a,
+      vector: {
+        note: "embedding omitted — 384 floats are not actionable for an agent",
+        dimensions: vector.length,
+        magnitude: Number(Math.sqrt(sumSquares).toFixed(4)),
+      },
+    },
+  };
+}
+
 export class BrainBackend {
   constructor(private readonly cfg: Config) {}
 
@@ -131,12 +163,13 @@ export class BrainBackend {
     customerId: string,
     memoryId: string,
   ): Promise<Record<string, unknown>> {
-    return this.request(
+    const raw = await this.request<Record<string, unknown>>(
       customerId,
       "GET",
       `/v1/memories/${encodeURIComponent(memoryId)}/inspect`,
       undefined,
     );
+    return summariseArtifact(raw);
   }
 
   // ---------------------------------------------------------------------

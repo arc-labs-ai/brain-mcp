@@ -19,6 +19,28 @@ function wire(code: string, message = "detail from brain"): string {
   return JSON.stringify({ error: { code, message } });
 }
 
+/**
+ * The gateway's shape instead: a flat RFC 7807 problem document. Captured
+ * verbatim from a live gateway — it shares no field with the edge's envelope
+ * except `code`, and puts the human text in `detail`, not `message`.
+ */
+function problem(
+  code: string,
+  status: number,
+  detail = "detail from gateway",
+  extra: Record<string, unknown> = {},
+): string {
+  return JSON.stringify({
+    type: `https://errors.arc-labs.ai/${code.replace(".", "/")}`,
+    title: "Something",
+    status,
+    code,
+    detail,
+    trace_id: "01a15c7b-dfe4-7420-8615-454aff2a9ef5",
+    ...extra,
+  });
+}
+
 function textOf(err: unknown): string {
   const res = fail(err);
   expect(res.isError).toBe(true);
@@ -32,6 +54,27 @@ function textOf(err: unknown): string {
  * is taught about it — which is the point, because an untaught code degrades
  * to a status-only guess at whether retrying helps.
  */
+const GATEWAY_CODES: ReadonlyArray<[code: string, status: number]> = [
+  ["auth.missing_key", 401],
+  ["auth.invalid_key", 401],
+  ["auth.forbidden", 403],
+  ["auth.unavailable", 503],
+  ["rate_limited", 429],
+  ["idempotency.conflict", 409],
+  ["resource.not_found", 404],
+  ["resource.conflict", 409],
+  ["llm_credential.missing", 409],
+  ["request.malformed", 400],
+  ["request.unsupported_media", 415],
+  ["validation.failed", 422],
+  ["engine.unavailable", 503],
+  ["engine.error", 502],
+  ["server.overloaded", 503],
+  ["server.timeout", 504],
+  ["server.error", 500],
+  ["not_implemented", 501],
+];
+
 const EDGE_CODES: ReadonlyArray<[code: string, status: number]> = [
   ["unauthorized", 401],
   ["forbidden", 403],
@@ -48,8 +91,51 @@ const EDGE_CODES: ReadonlyArray<[code: string, status: number]> = [
 ];
 
 describe("fail() error contract", () => {
-  it("has guidance for every code brain-edge can emit, and no others", () => {
-    expect([...KNOWN_PROBLEM_CODES].sort()).toEqual(EDGE_CODES.map(([c]) => c).sort());
+  it("has guidance for every code either backend can emit, and no others", () => {
+    // brain-mcp fronts two backends that share almost no error vocabulary.
+    // Built from the edge alone, the table left 13 of the gateway's 18 codes
+    // unrecognised — on the deployment the README calls the intended one.
+    const expected = [
+      ...new Set([...EDGE_CODES, ...GATEWAY_CODES].map(([c]) => c)),
+    ].sort();
+    expect([...KNOWN_PROBLEM_CODES].sort()).toEqual(expected);
+  });
+
+  it("reads the gateway's RFC 7807 shape, not just the edge's envelope", () => {
+    for (const [code, status] of GATEWAY_CODES) {
+      const text = textOf(new BackendError(status, problem(code, status)));
+      expect(text, code).toContain(`code: ${code} http ${status}`);
+      expect(text, code).toContain("error: detail from gateway");
+      expect(text, code).not.toContain("(unrecognised)");
+      // `detail`, not `message` — reading only `message` left the headline
+      // empty and fell back to dumping the raw JSON at the agent.
+      expect(text, code).not.toContain('"type"');
+    }
+  });
+
+  it("carries the trace id so an operator can find the request", () => {
+    // The gateway withholds 5xx detail from the response on purpose and logs
+    // it under this id. Without it the agent reports an unfindable failure.
+    const text = textOf(new BackendError(500, problem("server.error", 500)));
+    expect(text).toContain("trace_id: 01a15c7b-dfe4-7420-8615-454aff2a9ef5");
+  });
+
+  it("prefers the server's own backoff hint over generic retry wording", () => {
+    const text = textOf(
+      new BackendError(
+        429,
+        problem("rate_limited", 429, "slow down", { retry_after: 30 }),
+      ),
+    );
+    expect(text).toMatch(/^retry: yes — wait 30s/m);
+  });
+
+  it("ignores a retry_after on a terminal failure", () => {
+    // A stray hint must not turn "never retry" into "retry".
+    const text = textOf(
+      new BackendError(409, problem("resource.conflict", 409, "dup", { retry_after: 5 })),
+    );
+    expect(text).toMatch(/^retry: no\b/m);
   });
 
   it("renders a code, a retry verdict and a fix for each of them", () => {

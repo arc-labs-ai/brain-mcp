@@ -10,6 +10,85 @@ hosted **gateway** or a self-hosted **brain-edge** — the JSON contract is the
 same. Every tool takes a `customer_id` for per-customer isolation (see
 [Scoping](#scoping) for how that behaves on each backend).
 
+## Quick start
+
+```bash
+npm install -g @brain-db/mcp
+```
+
+### Connect a client
+
+brain-mcp speaks MCP two ways. Pick the one your client uses.
+
+**stdio** — the client starts and owns the process. This is the usual local
+setup for Claude Desktop and Cursor:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "command": "npx",
+      "args": ["-y", "@brain-db/mcp", "--stdio"],
+      "env": {
+        "BRAIN_MCP_BACKEND_URL": "https://api.arc-labs.ai",
+        "BRAIN_MCP_API_KEY": "brain_…",
+        "BRAIN_MCP_NAMESPACE": "your-namespace"
+      }
+    }
+  }
+}
+```
+
+**Remote HTTP** — you run the server, the client connects to it. Use this to
+share one deployment across clients or machines:
+
+```bash
+brain-mcp            # listens on :3333, MCP endpoint at POST /mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "brain": { "url": "http://127.0.0.1:3333/mcp" }
+  }
+}
+```
+
+`--stdio` (or `BRAIN_MCP_STDIO=1`) selects stdio; otherwise an HTTP listener
+starts. On stdio the client holds the credential in its own config and the
+server writes only protocol frames to stdout — all logs go to stderr, which
+clients show as server logs.
+
+OAuth applies to the HTTP transport only: over stdio the client already owns
+the process and sends no HTTP request, so `--stdio` with
+`BRAIN_MCP_OAUTH_ENABLED` set exits rather than quietly serving unauthenticated.
+
+## Run from source
+
+```bash
+npm install
+cp .env.example .env      # set BRAIN_MCP_BACKEND_URL / _API_KEY / _NAMESPACE
+npm run build
+npm start                 # HTTP on :3333, MCP endpoint at POST /mcp
+npm start -- --stdio      # or stdio, for a client that owns the process
+```
+
+Liveness: `curl -fsS localhost:3333/healthz`.
+
+### Configuration
+
+| Env var | Required | Default | Meaning |
+|---|---|---|---|
+| `BRAIN_MCP_BACKEND_URL` | yes | — | Brain REST base URL (gateway or brain-edge). |
+| `BRAIN_MCP_API_KEY` | yes | — | Bearer key sent to the backend. |
+| `BRAIN_MCP_NAMESPACE` | yes | — | Namespace slug scope. |
+| `BRAIN_MCP_NAMESPACE_HEADER` | no | `x-brain-namespace` | Namespace scope header. |
+| `BRAIN_MCP_SCOPE_HEADER` | no | `x-brain-space` | Per-customer scope header (gateway also accepts the legacy `x-brain-agent`). |
+| `BRAIN_MCP_STDIO` | no | `false` | Serve MCP over stdin/stdout instead of HTTP (same as `--stdio`). The port/host settings are unused in that mode. |
+| `BRAIN_MCP_PORT` | no | `3333` | Listen port (HTTP only). |
+| `BRAIN_MCP_HOST` | no | `0.0.0.0` | Bind interface. |
+| `BRAIN_MCP_REQUEST_TIMEOUT_MS` | no | `30000` | Per-request backend timeout. |
+
 ## Tools
 
 25 tools over the tenant surface. Every one takes `customer_id`; `?` marks an
@@ -87,30 +166,6 @@ deal than an agent without them:
 - `force_drop_existing` on `PUT /v1/schema` — destructive schema replacement.
   `upload_schema` cannot set it, so the worst an agent can do is an additive
   change.
-
-## Run
-
-```bash
-npm install
-cp .env.example .env      # set BRAIN_MCP_BACKEND_URL / _API_KEY / _NAMESPACE
-npm run build
-npm start                 # listens on :3333, MCP endpoint at POST /mcp
-```
-
-Liveness: `curl -fsS localhost:3333/healthz`.
-
-### Configuration
-
-| Env var | Required | Default | Meaning |
-|---|---|---|---|
-| `BRAIN_MCP_BACKEND_URL` | yes | — | Brain REST base URL (gateway or brain-edge). |
-| `BRAIN_MCP_API_KEY` | yes | — | Bearer key sent to the backend. |
-| `BRAIN_MCP_NAMESPACE` | yes | — | Namespace slug scope. |
-| `BRAIN_MCP_NAMESPACE_HEADER` | no | `x-brain-namespace` | Namespace scope header. |
-| `BRAIN_MCP_SCOPE_HEADER` | no | `x-brain-space` | Per-customer scope header (gateway also accepts the legacy `x-brain-agent`). |
-| `BRAIN_MCP_PORT` | no | `3333` | Listen port. |
-| `BRAIN_MCP_HOST` | no | `0.0.0.0` | Bind interface. |
-| `BRAIN_MCP_REQUEST_TIMEOUT_MS` | no | `30000` | Per-request backend timeout. |
 
 ## Scoping
 

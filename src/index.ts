@@ -17,9 +17,11 @@
  */
 
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express, {
   type Express,
+  type NextFunction,
   type Request,
   type RequestHandler,
   type Response,
@@ -34,6 +36,8 @@ import { type Config, ConfigError, loadConfig } from "./config/index.js";
 import { buildServer } from "./server/index.js";
 
 const JSONRPC_METHOD_NOT_ALLOWED = -32000;
+/** JSON-RPC "Invalid Request" — the body never became a valid envelope. */
+const JSONRPC_INVALID_REQUEST = -32600;
 
 function methodNotAllowed(res: Response): void {
   res.status(405).json({
@@ -47,6 +51,35 @@ function methodNotAllowed(res: Response): void {
 export function buildApp(cfg: Config): Express {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
+
+  // A body over the limit is rejected by the JSON parser before any MCP code
+  // runs, and express's default handler answers with an HTML error page. The
+  // MCP client cannot parse that, so it raises a TRANSPORT error — the agent
+  // sees the connection break rather than a tool result it can read, and a
+  // single oversized `remember` looks like the server fell over.
+  //
+  // Answering in JSON-RPC instead keeps an oversized request a normal,
+  // readable failure. The tool schemas cap their own inputs well below 1 MB;
+  // this is the backstop for anything that slips past them.
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    const e = err as { type?: string; status?: number };
+    const tooLarge = e?.type === "entity.too.large" || e?.status === 413;
+    res.status(tooLarge ? 413 : 400).json({
+      jsonrpc: "2.0",
+      error: {
+        code: JSONRPC_INVALID_REQUEST,
+        message: tooLarge
+          ? "Request body too large (limit 1MB). Split the content into " +
+            "smaller memories — remember() accepts up to ~256 KB per call."
+          : "Malformed request body.",
+      },
+      id: null,
+    });
+  });
 
   // Liveness — cheap, unauthenticated, no backend call.
   app.get("/healthz", (_req: Request, res: Response) => {
@@ -108,7 +141,7 @@ export function buildApp(cfg: Config): Express {
   return app;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   let cfg: Config;
   try {
     cfg = loadConfig();
@@ -120,6 +153,11 @@ function main(): void {
     throw err;
   }
 
+  if (wantsStdio()) {
+    await serveStdio(cfg);
+    return;
+  }
+
   buildApp(cfg).listen(cfg.port, cfg.host, () => {
     const mode = cfg.oauth ? `oauth (issuer ${cfg.oauth.issuer})` : "no-auth (M1)";
     console.error(
@@ -129,7 +167,63 @@ function main(): void {
   });
 }
 
+/**
+ * Whether to speak MCP over stdio instead of HTTP.
+ *
+ * `package.json` declares a `bin`, which is the conventional signal for a
+ * stdio server, so the natural client config is
+ * `{"command": "npx", "args": ["-y", "@brain-db/mcp"]}`. Without this the
+ * binary started an HTTP listener instead, printed a log line to stdout, and
+ * ignored the `initialize` frame on stdin — the client hung forever with no
+ * error. Supporting both is the honest reading of shipping a `bin`.
+ */
+function wantsStdio(): boolean {
+  return process.argv.includes("--stdio") || isTruthy(process.env.BRAIN_MCP_STDIO);
+}
+
+function isTruthy(v: string | undefined): boolean {
+  if (v === undefined) return false;
+  const s = v.trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
+/**
+ * Serve one MCP session over stdin/stdout.
+ *
+ * Unlike the HTTP path there is no per-request server: a stdio client owns the
+ * process for its lifetime, so one backend and one server are built once and
+ * live until the stream closes.
+ *
+ * Nothing may be written to stdout except protocol frames — a stray log line
+ * is a parse error at the client. Every diagnostic here goes to stderr, which
+ * clients surface as server logs.
+ */
+async function serveStdio(cfg: Config): Promise<void> {
+  if (cfg.oauth) {
+    // OAuth authenticates an HTTP caller. Over stdio the client already owns
+    // the process; there is no request to bear a token, so silently running
+    // unauthenticated would misrepresent the deployment.
+    console.error(
+      "brain-mcp: BRAIN_MCP_OAUTH_ENABLED is set but OAuth does not apply to " +
+        "stdio — the client owns this process and sends no HTTP request. " +
+        "Run without --stdio to use OAuth, or unset it to serve stdio.",
+    );
+    process.exit(1);
+  }
+  const server = buildServer(new BrainBackend(cfg));
+  const transport = new StdioServerTransport();
+  console.error(
+    `brain-mcp on stdio → backend ${cfg.backendUrl} (namespace ${cfg.namespace})`,
+  );
+  await server.connect(transport);
+}
+
 // Only start a listener when run directly, not when imported by tests.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  main();
+  main().catch((err) => {
+    // stderr, never stdout: on the stdio transport stdout carries protocol
+    // frames and a stray line is a parse error at the client.
+    console.error("brain-mcp: fatal:", err);
+    process.exit(1);
+  });
 }
