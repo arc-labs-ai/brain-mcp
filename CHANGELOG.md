@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/arc-labs-ai/brain-mcp/compare/v0.2.1...v0.3.0) (2026-11-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mcp:** tools no longer accept `customer_id`, and the HTTP transport requires an `Authorization: Bearer` header on every request. `BRAIN_MCP_OAUTH_*` and `BRAIN_MCP_NAMESPACE`/`_NAMESPACE_HEADER`/`_SCOPE_HEADER` are removed, and `BRAIN_MCP_OAUTH_ENABLED` now refuses to start.
+
+### Features
+
+* **mcp:** run every request as the caller, and cover the whole tenant surface ([533eadd](https://github.com/arc-labs-ai/brain-mcp/commit/533eaddbdeff27eefe613499ee2dbc0d7d39518b))
+
+
+### Build and tooling
+
+* **docker:** publish a container image to GHCR for the hosted endpoint ([c0f5774](https://github.com/arc-labs-ai/brain-mcp/commit/c0f577496ae35ac3813b04aad27e52fbb0ce8f47))
+
 ## [0.2.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.2.0...v0.2.1) (2026-10-21)
 
 
