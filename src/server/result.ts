@@ -8,7 +8,6 @@
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
 import { BackendError } from "../backend/index.js";
 
 /** Render a successful tool result as pretty JSON text content. */
@@ -97,20 +96,37 @@ const RETRY_TEXT: Record<Retry, string> = {
  * shared, so a table built from one backend leaves the other almost entirely
  * unrecognised. This is the agent-facing half of both contracts: a code added
  * to either belongs here, and `errors.test.ts` fails until it is.
+ *
+ * ⚠️ THE CREDENTIAL IN THESE MESSAGES IS THE CALLER'S, NEVER THIS SERVER'S.
+ * The auth entries used to say the opposite — "the service key this MCP
+ * server authenticates with was rejected … an operator needs to check
+ * BRAIN_API_KEY" — which was left over from the removed shared-service-key
+ * mode. Two things were wrong with it once that mode went away. There is no
+ * server-held key on the HTTP path at all, so a 401 means the CALLER's key
+ * was rejected and the caller is who fixes it; and `BRAIN_API_KEY` is not a
+ * variable this server has ever read (it is `BRAIN_MCP_API_KEY`, and only on
+ * stdio). An agent following that text sent its user to an operator who had
+ * nothing to check, for a key that did not exist, under a name that was not
+ * real. `errors.test.ts` now fails on any guidance naming an env var this
+ * server does not read.
  */
 const PROBLEMS: Record<string, { retry: Retry; fix: string }> = {
   unauthorized: {
     retry: "never",
     fix:
-      "the service key this MCP server authenticates with was rejected. An " +
-      "operator needs to check BRAIN_API_KEY; nothing about the tool call " +
-      "itself is wrong.",
+      "the API key this connection presented was rejected. It is YOUR key, not " +
+      "the server's: over HTTP it is the `Authorization: Bearer` header your " +
+      "MCP client sends, and on stdio it is `BRAIN_MCP_API_KEY` in that " +
+      "client's own config. Check it is current and was not revoked; nothing " +
+      "about the tool call itself is wrong.",
   },
   forbidden: {
     retry: "never",
     fix:
-      "the service key is valid but not permitted on this namespace or " +
-      "customer scope. An operator needs to widen the key's grant.",
+      "your API key is valid but not permitted on this namespace or " +
+      "workspace. A workspace admin needs to widen the key's grant, or you " +
+      "need a key bound to the workspace you meant. `whoami` reports which " +
+      "one this key actually resolves to.",
   },
   bad_request: {
     retry: "never",
@@ -122,14 +138,14 @@ const PROBLEMS: Record<string, { retry: Retry; fix: string }> = {
   not_found: {
     retry: "never",
     fix:
-      "no such record in this customer's scope. Confirm the id, and that it " +
-      "belongs to the customer_id passed — ids are not shared across " +
-      "customers.",
+      "no such record in this workspace. Confirm the id, and that it belongs " +
+      "to the workspace your API key is bound to — ids are not shared across " +
+      "workspaces.",
   },
   conflict: {
     retry: "never",
     fix:
-      "the request conflicts with this customer's current state. Read the " +
+      "the request conflicts with this workspace's current state. Read the " +
       "current state before writing again rather than retrying.",
   },
   "llm_credential.missing": {
@@ -183,21 +199,25 @@ const PROBLEMS: Record<string, { retry: Retry; fix: string }> = {
   "auth.missing_key": {
     retry: "never",
     fix:
-      "no API key reached the gateway. The MCP server sends BRAIN_API_KEY as " +
-      "a bearer token; an operator needs to check it is set and that nothing " +
-      "in front is stripping the header.",
+      "no API key reached the gateway. This server refuses an uncredentialed " +
+      "request with a 401 of its own, so a key that goes missing further on " +
+      "means something between here and the gateway stripped the " +
+      "`Authorization` header — a proxy or load balancer is the usual cause. " +
+      "That is an operator's problem, not yours.",
   },
   "auth.invalid_key": {
     retry: "never",
     fix:
-      "the gateway does not recognise this API key, or it has been revoked. " +
-      "An operator needs to issue a new one; the tool call itself is fine.",
+      "the gateway does not recognise the API key you presented, or it has " +
+      "been revoked. Issue a new one in the dashboard and update your MCP " +
+      "client config; the tool call itself is fine.",
   },
   "auth.forbidden": {
     retry: "never",
     fix:
-      "the key is valid but not permitted on this customer scope. An operator " +
-      "needs to widen its grant.",
+      "your key is valid but not permitted on this workspace. A workspace " +
+      "admin needs to widen its grant, or you need a key bound to the " +
+      "workspace you meant — `whoami` reports which one this key resolves to.",
   },
   "auth.unavailable": {
     retry: "soon",
@@ -208,7 +228,7 @@ const PROBLEMS: Record<string, { retry: Retry; fix: string }> = {
   rate_limited: {
     retry: "soon",
     fix:
-      "this customer is over its request allowance. Back off and spread the " +
+      "this workspace is over its request allowance. Back off and spread the " +
       "calls out; a burst of retries makes it worse.",
   },
   "idempotency.conflict": {
@@ -221,13 +241,13 @@ const PROBLEMS: Record<string, { retry: Retry; fix: string }> = {
   "resource.not_found": {
     retry: "never",
     fix:
-      "no such record in this customer's scope. Confirm the id, and that it " +
-      "belongs to the customer_id passed.",
+      "no such record in this workspace. Confirm the id, and that it belongs " +
+      "to the workspace your API key is bound to.",
   },
   "resource.conflict": {
     retry: "never",
     fix:
-      "the request conflicts with this customer's current state — a duplicate " +
+      "the request conflicts with this workspace's current state — a duplicate " +
       "canonical name being the usual cause. Read the current state before " +
       "writing again rather than retrying.",
   },
@@ -286,7 +306,8 @@ function fromStatus(status: number): { retry: Retry; fix: string } {
       retry: "soon",
       fix:
         "Brain could not be reached at all. An operator should check " +
-        "BRAIN_BACKEND_URL and that the edge is running.",
+        "BRAIN_MCP_BACKEND_URL and that the backend is running. This one IS " +
+        "server configuration — your key is not involved.",
     };
   }
   if (status === 429) {
@@ -354,29 +375,3 @@ export function fail(err: unknown): CallToolResult {
 
 /** Every code {@link fail} renders specific guidance for. Exported for tests. */
 export const KNOWN_PROBLEM_CODES = Object.keys(PROBLEMS);
-
-/**
- * The scope travels to Brain as an HTTP header value, and header values are
- * ByteStrings. A non-ASCII id therefore cannot be sent at all: `fetch` throws
- * `Cannot convert argument to a ByteString`, which surfaced to the agent as
- * `request to /v1/memories failed` — a transport error blaming the backend
- * for an input the schema should have caught. Rejecting it here says plainly
- * whose fault it is and which argument to change.
- */
-const HEADER_SAFE = /^[\x21-\x7e]+$/;
-
-export const customerId = z
-  .string()
-  .min(1)
-  .max(1024)
-  .regex(
-    HEADER_SAFE,
-    "customer_id must be printable ASCII without spaces (it travels as an " +
-      "HTTP header). Map a non-ASCII id to a stable ASCII one — a hash or " +
-      "slug — before calling.",
-  )
-  .describe(
-    "Stable id of the end customer / user this memory belongs to. Every tool is " +
-      "scoped to one customer so their memories never leak across customers. " +
-      "Printable ASCII, no spaces: it is sent as an HTTP header value.",
-  );

@@ -7,30 +7,22 @@
  * any request. Tool-only clients never need the GET notification stream, so GET
  * and DELETE return 405.
  *
- * Auth:
- * - OAuth off (M1): the MCP endpoint is unauthenticated — run behind a trust
- *   boundary. Brain is called with the configured service key; scope per customer.
- * - OAuth on (M2): every request needs a valid bearer token from the configured
- *   issuer; the token's tenant claim selects the namespace. Brain is still called
- *   with the service key + act_as, so the user token authorizes the caller, not
- *   the Brain connection.
+ * Auth: the caller's own Brain API key, carried as `Authorization: Bearer`
+ * and forwarded to the backend verbatim. The server holds no credential, so
+ * one hosted deployment serves every user as themselves, and a request with no
+ * bearer can do nothing but collect a 401. There is no ambient authority here
+ * to misconfigure, which is also why this endpoint is safe to expose directly
+ * rather than behind a shared-secret gate.
  */
 
-import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express, {
   type Express,
   type NextFunction,
   type Request,
-  type RequestHandler,
   type Response,
 } from "express";
-import {
-  JwtTokenVerifier,
-  namespaceFrom,
-  protectedResourceMetadata,
-} from "./auth/index.js";
 import { BrainBackend } from "./backend/index.js";
 import { type Config, ConfigError, loadConfig } from "./config/index.js";
 import { buildServer } from "./server/index.js";
@@ -38,6 +30,46 @@ import { buildServer } from "./server/index.js";
 const JSONRPC_METHOD_NOT_ALLOWED = -32000;
 /** JSON-RPC "Invalid Request" — the body never became a valid envelope. */
 const JSONRPC_INVALID_REQUEST = -32600;
+
+/**
+ * The caller's bearer credential, or undefined.
+ *
+ * Only the `Bearer` scheme is read. `x-api-key` is NOT accepted even though
+ * the gateway takes it, because this server's contract is one documented place
+ * to put the credential; a second one is a second thing to get wrong and a
+ * second place a key can be logged by an intermediary that knows the first.
+ */
+function bearerFrom(header: string | undefined): string | undefined {
+  if (header === undefined) return undefined;
+  const m = /^[Bb]earer[ ]+(.+)$/.exec(header.trim());
+  const token = m?.[1]?.trim();
+  return token !== undefined && token.length > 0 ? token : undefined;
+}
+
+/**
+ * 401 for a request that presented no credential.
+ *
+ * Carries `WWW-Authenticate` so an MCP client can say what is wrong, and a
+ * JSON-RPC envelope so a client that only parses JSON-RPC does not report a
+ * transport fault. The message names the fix, because the most likely reader
+ * is a user who pasted a client config without the header.
+ */
+function unauthorized(res: Response): void {
+  res
+    .status(401)
+    .set("WWW-Authenticate", 'Bearer realm="brain-mcp"')
+    .json({
+      jsonrpc: "2.0",
+      error: {
+        code: JSONRPC_INVALID_REQUEST,
+        message:
+          "Missing Authorization header. This server runs every request as the " +
+          "caller, so it needs your own Brain API key: send " +
+          "`Authorization: Bearer <your key>`. Create one in the dashboard.",
+      },
+      id: null,
+    });
+}
 
 function methodNotAllowed(res: Response): void {
   res.status(405).json({
@@ -86,31 +118,17 @@ export function buildApp(cfg: Config): Express {
     res.status(200).json({ status: "ok", service: "brain-mcp" });
   });
 
-  // OAuth 2.1 resource-server surface (M2), only when configured.
-  let authMiddleware: RequestHandler[] = [];
-  if (cfg.oauth) {
-    const oauth = cfg.oauth;
-    const metadataPath = "/.well-known/oauth-protected-resource";
-    const resourceMetadataUrl = `${oauth.publicUrl}${metadataPath}`;
-    app.get(metadataPath, (_req: Request, res: Response) => {
-      res.status(200).json(protectedResourceMetadata(oauth));
-    });
-    authMiddleware = [
-      requireBearerAuth({
-        verifier: new JwtTokenVerifier(oauth),
-        requiredScopes: oauth.requiredScopes,
-        resourceMetadataUrl,
-      }),
-    ];
-  }
-
-  // Stateless MCP endpoint: fresh server + transport per request. Namespace is
-  // the token's tenant claim (OAuth) or the configured default.
-  app.post("/mcp", ...authMiddleware, async (req: Request, res: Response) => {
-    const namespace = cfg.oauth
-      ? namespaceFrom(req.auth, cfg.oauth.namespaceClaim, cfg.namespace)
-      : cfg.namespace;
-    const backend = new BrainBackend({ ...cfg, namespace });
+  // Stateless MCP endpoint: fresh server + transport per request, and a fresh
+  // backend bound to THIS caller's credential. Per-request construction is
+  // what makes one deployment safe for many users — there is no cross-request
+  // state for one caller's identity to leak into another's.
+  app.post("/mcp", async (req: Request, res: Response) => {
+    const credential = bearerFrom(req.headers.authorization);
+    if (credential === undefined) {
+      unauthorized(res);
+      return;
+    }
+    const backend = new BrainBackend(cfg, credential);
     const server = buildServer(backend);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -142,9 +160,10 @@ export function buildApp(cfg: Config): Express {
 }
 
 async function main(): Promise<void> {
+  const stdio = wantsStdio();
   let cfg: Config;
   try {
-    cfg = loadConfig();
+    cfg = loadConfig(stdio);
   } catch (err) {
     if (err instanceof ConfigError) {
       console.error(`brain-mcp: configuration error: ${err.message}`);
@@ -153,16 +172,15 @@ async function main(): Promise<void> {
     throw err;
   }
 
-  if (wantsStdio()) {
+  if (stdio) {
     await serveStdio(cfg);
     return;
   }
 
   buildApp(cfg).listen(cfg.port, cfg.host, () => {
-    const mode = cfg.oauth ? `oauth (issuer ${cfg.oauth.issuer})` : "no-auth (M1)";
     console.error(
       `brain-mcp listening on http://${cfg.host}:${cfg.port}/mcp ` +
-        `→ backend ${cfg.backendUrl} (namespace ${cfg.namespace}) [${mode}]`,
+        `→ backend ${cfg.backendUrl} (per-caller credentials)`,
     );
   });
 }
@@ -199,22 +217,14 @@ function isTruthy(v: string | undefined): boolean {
  * clients surface as server logs.
  */
 async function serveStdio(cfg: Config): Promise<void> {
-  if (cfg.oauth) {
-    // OAuth authenticates an HTTP caller. Over stdio the client already owns
-    // the process; there is no request to bear a token, so silently running
-    // unauthenticated would misrepresent the deployment.
-    console.error(
-      "brain-mcp: BRAIN_MCP_OAUTH_ENABLED is set but OAuth does not apply to " +
-        "stdio — the client owns this process and sends no HTTP request. " +
-        "Run without --stdio to use OAuth, or unset it to serve stdio.",
-    );
-    process.exit(1);
+  // `loadConfig(true)` has already refused to return without it; this narrows
+  // the optional type and states the invariant where it is relied on.
+  if (cfg.apiKey === undefined) {
+    throw new Error("unreachable: stdio config without a credential");
   }
-  const server = buildServer(new BrainBackend(cfg));
+  const server = buildServer(new BrainBackend(cfg, cfg.apiKey));
   const transport = new StdioServerTransport();
-  console.error(
-    `brain-mcp on stdio → backend ${cfg.backendUrl} (namespace ${cfg.namespace})`,
-  );
+  console.error(`brain-mcp on stdio → backend ${cfg.backendUrl}`);
   await server.connect(transport);
 }
 

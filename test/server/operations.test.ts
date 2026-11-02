@@ -50,13 +50,9 @@ afterAll(async () => {
 async function connectedClient(): Promise<Client> {
   const cfg: Config = {
     backendUrl: baseUrl,
-    apiKey: "brain_test_key",
-    namespace: "acme",
-    namespaceHeader: "x-brain-namespace",
-    scopeHeader: "x-brain-customer",
     requestTimeoutMs: 5000,
   } as Config;
-  const mcp = buildServer(new BrainBackend(cfg));
+  const mcp = buildServer(new BrainBackend(cfg, "brain_test_key"));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await mcp.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });
@@ -64,35 +60,87 @@ async function connectedClient(): Promise<Client> {
   return client;
 }
 
-const C = { customer_id: "cust-1" };
-
 /** Minimal valid arguments for every registered tool. */
 const CALLS: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
-  ["remember", { ...C, content: "Ada likes dark roast" }],
-  ["recall", { ...C, query: "what does Ada like?" }],
-  ["forget", { ...C, memory_id: "m-1" }],
-  ["list_memories", { ...C }],
-  ["inspect_memory", { ...C, memory_id: "m-1" }],
-  ["plan", { ...C, start: "here", goal: "there" }],
-  ["reason", { ...C, observation: "the invoice bounced" }],
-  ["link", { ...C, source: "m-1", target: "m-2", kind: "caused" }],
-  ["unlink", { ...C, source: "m-1", target: "m-2", kind: "caused" }],
-  ["graph", { ...C }],
-  ["create_entity", { ...C, entity_type_id: 1, canonical_name: "Acme" }],
-  ["list_entities", { ...C, entity_type_id: 1 }],
-  ["resolve_entity", { ...C, candidate_name: "the Acme account" }],
-  ["get_entity", { ...C, entity_id: "e-1" }],
-  ["traverse_entity", { ...C, entity_id: "e-1" }],
-  ["entity_relations", { ...C, entity_id: "e-1" }],
-  ["list_statements", { ...C }],
-  ["get_statement", { ...C, statement_id: "s-1" }],
-  ["get_relation", { ...C, relation_id: "r-1" }],
-  ["get_schema", { ...C }],
-  ["validate_schema", { ...C, schema_document: "entity P {}" }],
-  ["upload_schema", { ...C, schema_document: "entity P {}" }],
-  ["whoami", { ...C }],
-  ["capabilities", { ...C }],
-  ["llm_credential_status", { ...C }],
+  ["remember", { content: "Ada likes dark roast" }],
+  ["recall", { query: "what does Ada like?" }],
+  ["forget", { memory_id: "m-1" }],
+  ["list_memories", {}],
+  ["inspect_memory", { memory_id: "m-1" }],
+  ["plan", { start: "here", goal: "there" }],
+  ["reason", { observation: "the invoice bounced" }],
+  ["link", { source: "m-1", target: "m-2", kind: "caused" }],
+  ["unlink", { source: "m-1", target: "m-2", kind: "caused" }],
+  ["graph", {}],
+  ["create_entity", { entity_type_id: 1, canonical_name: "Acme" }],
+  ["list_entities", { entity_type_id: 1 }],
+  ["resolve_entity", { candidate_name: "the Acme account" }],
+  ["get_entity", { entity_id: "e-1" }],
+  ["traverse_entity", { entity_id: "e-1" }],
+  ["entity_relations", { entity_id: "e-1" }],
+  ["list_statements", {}],
+  ["get_statement", { statement_id: "s-1" }],
+  ["get_relation", { relation_id: "r-1" }],
+  ["get_schema", {}],
+  ["validate_schema", { schema_document: "entity P {}" }],
+  ["upload_schema", { schema_document: "entity P {}" }],
+  ["whoami", {}],
+  ["capabilities", {}],
+  ["llm_credential_status", {}],
+
+  // --- lifecycle and authoring -------------------------------------------
+  ["update_entity", { entity_id: "e-1", canonical_name: "Acme Corp" }],
+  ["rename_entity", { entity_id: "e-1", new_canonical_name: "Acme Corp" }],
+  ["merge_entities", { survivor_entity_id: "e-1", merged_entity_id: "e-2" }],
+  ["unmerge_entity", { entity_id: "e-2" }],
+  ["delete_entity", { entity_id: "e-1" }],
+  ["statement_history", { statement_id: "s-1" }],
+  [
+    "create_statement",
+    {
+      kind: "fact",
+      subject: "e-1",
+      predicate: "prefers",
+      object: { kind: "value", value: { type: "text", value: "dark roast" } },
+    },
+  ],
+  [
+    "supersede_statement",
+    {
+      statement_id: "s-1",
+      kind: "fact",
+      subject: "e-1",
+      predicate: "prefers",
+      object: { kind: "entity", id: "e-9" },
+    },
+  ],
+  ["delete_statement", { statement_id: "s-1" }],
+  ["retract_statement", { statement_id: "s-1" }],
+  [
+    "create_relation",
+    { relation_type: "works_at", from_entity: "e-1", to_entity: "e-2" },
+  ],
+  [
+    "supersede_relation",
+    {
+      relation_id: "r-1",
+      relation_type: "works_at",
+      from_entity: "e-1",
+      to_entity: "e-3",
+    },
+  ],
+  ["delete_relation", { relation_id: "r-1" }],
+  ["list_schema_versions", {}],
+  ["list_extractors", {}],
+  ["drop_schema_type", { kind: "predicate", name: "prefers" }],
+  ["explain_query", { text: "what does Ada like?" }],
+  ["trace_query", { text: "what does Ada like?" }],
+  ["materialize_directives", {}],
+  ["create_session", { session_id: 7 }],
+  ["list_sessions", {}],
+  ["delete_session", { session_id: 7 }],
+  ["list_spaces", {}],
+  ["verify_llm_credential", {}],
 ];
 
 describe("brain-mcp every operation", () => {
@@ -135,10 +183,10 @@ describe("brain-mcp every operation", () => {
     mode = "ok";
   });
 
-  it("rejects a call that omits customer_id, before reaching the backend", async () => {
+  it("rejects a call that omits a required argument, before reaching the backend", async () => {
     mode = "fail"; // would 500 if the call got through
     const client = await connectedClient();
-    const res = await client.callTool({ name: "recall", arguments: { query: "x" } });
+    const res = await client.callTool({ name: "recall", arguments: {} });
     expect(res.isError).toBe(true);
     const text = (res.content as Array<{ text?: string }>)[0]?.text ?? "";
     // Schema validation, not a backend error: the 500 never happened.

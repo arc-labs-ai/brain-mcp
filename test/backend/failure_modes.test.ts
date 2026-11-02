@@ -34,13 +34,10 @@ async function withBackend(
     throw new Error("no port");
   const cfg: Config = {
     backendUrl: `http://127.0.0.1:${addr.port}`,
-    apiKey: "brain_test_key",
-    namespace: "acme",
-    namespaceHeader: "x-brain-namespace",
-    scopeHeader: "x-brain-customer",
+
     requestTimeoutMs: timeoutMs,
   } as Config;
-  return new BrainBackend(cfg);
+  return new BrainBackend(cfg, "brain_test_key");
 }
 
 describe("brain-mcp backend failure modes", () => {
@@ -51,7 +48,7 @@ describe("brain-mcp backend failure modes", () => {
       /* deliberately never responds */
     }, 300);
 
-    await expect(backend.recall("cust-1", "anything")).rejects.toMatchObject({
+    await expect(backend.recall("anything")).rejects.toMatchObject({
       name: "BackendError",
       status: 504,
     });
@@ -60,13 +57,10 @@ describe("brain-mcp backend failure modes", () => {
   it("an unreachable backend becomes a 502, not a raw fetch error", async () => {
     const cfg: Config = {
       backendUrl: "http://127.0.0.1:9", // discard port: refuses immediately
-      apiKey: "k",
-      namespace: "acme",
-      namespaceHeader: "x-brain-namespace",
-      scopeHeader: "x-brain-customer",
+
       requestTimeoutMs: 2000,
     } as Config;
-    await expect(new BrainBackend(cfg).whoami("cust-1")).rejects.toMatchObject({
+    await expect(new BrainBackend(cfg, "k").whoami()).rejects.toMatchObject({
       name: "BackendError",
       status: 502,
     });
@@ -79,7 +73,7 @@ describe("brain-mcp backend failure modes", () => {
       res.setHeader("content-type", "text/html");
       res.end("<html>503 from the load balancer</html>");
     });
-    await expect(backend.getSchema("cust-1")).rejects.toThrow();
+    await expect(backend.getSchema()).rejects.toThrow();
   });
 
   it("an empty 2xx body is an empty object, not undefined", async () => {
@@ -89,27 +83,26 @@ describe("brain-mcp backend failure modes", () => {
       res.statusCode = 204;
       res.end();
     });
-    await expect(backend.forget("cust-1", "m-1", false)).resolves.toEqual({});
+    await expect(backend.forget("m-1", false)).resolves.toEqual({});
   });
 
-  it("whoami falls back to configured scope on 404, but not on 500", async () => {
-    // The fallback exists because not every backend serves /v1/whoami. It must
-    // be narrow: a 500 is a real failure and must not be papered over with a
-    // confident-looking identity.
+  it("whoami surfaces a failure rather than synthesising an identity", async () => {
+    // There used to be a 404 fallback that reported the locally-configured
+    // scope. With per-caller credentials there is no local scope to report,
+    // and whoami is precisely the call a user makes to check WHICH identity
+    // they are connected as — the one answer that must never be invented.
     const notFound = await withBackend((_req, res) => {
       res.statusCode = 404;
       res.end("{}");
     });
-    const fallback = await notFound.whoami("cust-1");
-    expect(fallback.namespace).toBe("acme");
-    expect(String(fallback.note)).toContain("no /v1/whoami");
+    await expect(notFound.whoami()).rejects.toMatchObject({ status: 404 });
     await new Promise<void>((resolve) => server?.close(() => resolve()));
 
     const broken = await withBackend((_req, res) => {
       res.statusCode = 500;
       res.end("{}");
     });
-    await expect(broken.whoami("cust-1")).rejects.toMatchObject({ status: 500 });
+    await expect(broken.whoami()).rejects.toMatchObject({ status: 500 });
   });
 
   it("a BackendError carries the status and a truncated body", async () => {
@@ -117,7 +110,7 @@ describe("brain-mcp backend failure modes", () => {
       res.statusCode = 422;
       res.end(JSON.stringify({ code: "validation.failed", detail: "x".repeat(2000) }));
     });
-    await expect(backend.remember("cust-1", "text")).rejects.toSatisfy((e: unknown) => {
+    await expect(backend.remember("text")).rejects.toSatisfy((e: unknown) => {
       if (!(e instanceof BackendError)) return false;
       // Bounded, so a huge body cannot flood the agent's context.
       return e.status === 422 && e.message.length < 700;

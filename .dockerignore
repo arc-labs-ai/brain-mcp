@@ -1,0 +1,22 @@
+# Keep the build context to what the image is built from — the lockfile,
+# tsconfig and src/. Everything else either doesn't belong in an image or
+# would invalidate the layer cache on every commit.
+
+.git
+.github
+node_modules
+dist
+test
+coverage
+
+# A local .env is a credential file, and it must never enter a build context:
+# this image is meant to hold no key at all, and a stray COPY would bake one
+# user's into something every user runs.
+.env
+.env.*
+
+*.md
+LICENSE
+biome.json
+release-please-config.json
+.release-please-manifest.json
