@@ -221,10 +221,73 @@ describe("fail() error contract", () => {
     expect(text).toContain("may or may not have landed");
   });
 
-  it("points at configuration, not the call, when the service key is rejected", () => {
+  it("sends a rejected key back to the caller, not to an operator", () => {
+    // This test used to assert the opposite — that a 401 names `BRAIN_API_KEY`
+    // and points at an operator — which pinned guidance left over from the
+    // removed shared-service-key mode. There is no server-held key on the
+    // HTTP path, so a 401 is the CALLER's credential being refused.
     const text = textOf(new BackendError(401, wire("unauthorized")));
-    expect(text).toContain("BRAIN_API_KEY");
     expect(text).toMatch(/^retry: no\b/m);
+    expect(text).toContain("YOUR key");
+    expect(text).toContain("BRAIN_MCP_API_KEY");
+    expect(text).not.toContain("operator");
+  });
+
+  it("still sends a stripped header to an operator, because that is theirs", () => {
+    // The one auth condition that genuinely is server-side: this server
+    // refuses an uncredentialed request itself, so a key missing at the
+    // gateway was lost in transit.
+    const text = textOf(
+      new BackendError(401, JSON.stringify({ code: "auth.missing_key" })),
+    );
+    expect(text).toContain("operator");
+    expect(text).toContain("Authorization");
+  });
+
+  /**
+   * The guard that stops the original bug coming back.
+   *
+   * The stale text named `BRAIN_API_KEY`, a variable this server has never
+   * read — so an agent quoting it sent its user looking for configuration
+   * that does not exist. Any env var mentioned in guidance has to be one the
+   * server actually reads.
+   */
+  it("never names an environment variable the server does not read", () => {
+    const READS = new Set([
+      "BRAIN_MCP_BACKEND_URL",
+      "BRAIN_MCP_API_KEY",
+      "BRAIN_MCP_STDIO",
+      "BRAIN_MCP_PORT",
+      "BRAIN_MCP_HOST",
+      "BRAIN_MCP_REQUEST_TIMEOUT_MS",
+      "BRAIN_MCP_OAUTH_ENABLED",
+    ]);
+
+    const invented = new Set<string>();
+    for (const code of KNOWN_PROBLEM_CODES) {
+      for (const name of textOf(new BackendError(400, wire(code))).match(
+        /\b[A-Z][A-Z0-9_]{4,}\b/g,
+      ) ?? []) {
+        if (!READS.has(name)) invented.add(`${code} → ${name}`);
+      }
+    }
+    expect([...invented]).toEqual([]);
+  });
+
+  /**
+   * And the guard for the model itself.
+   *
+   * "Service key" is the vocabulary of the removed mode. The server holds no
+   * credential on the HTTP path, so any guidance describing one is describing
+   * a system that no longer exists.
+   */
+  it("never describes a credential the server holds", () => {
+    const offenders = KNOWN_PROBLEM_CODES.filter((code) =>
+      /service key|the server's (own )?key|server-held/i.test(
+        textOf(new BackendError(400, wire(code))),
+      ),
+    );
+    expect(offenders).toEqual([]);
   });
 
   it("survives a non-BackendError without throwing", () => {

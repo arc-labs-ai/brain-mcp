@@ -14,20 +14,32 @@
  * the shape, and each description says when to reach for it rather than
  * restating the endpoint.
  *
- * THREE OPERATIONS ARE DELIBERATELY NOT TOOLS, though the backend implements
- * them:
+ * FIVE TENANT ROUTES HAVE NO TOOL, and the backend does not implement them
+ * either — a method reachable from nothing is a destructive surface with no
+ * caller, which is what the previous three were:
  *
- *   - `PUT /v1/llm-credential` — writes a provider key. A tool that accepts
- *     secrets is a prompt-injection target, and an agent has no business
- *     holding one.
- *   - `DELETE /v1/llm-credential` — revoking the key stops every write in the
- *     workspace.
- *   - `PUT /v1/schema` with `force_drop_existing` — discards declarations and
- *     the rows bound to them.
+ *   - `PUT`/`DELETE /v1/llm-credential` — writing a provider key puts a secret
+ *     in a tool call, where it lands in transcripts and logs; revoking one
+ *     stops every write in the workspace. `POST /v1/llm-credential/test` is
+ *     out for the same reason as PUT: it takes a RAW key in its body.
+ *     `verify_llm_credential` re-probes the key already stored and carries
+ *     nothing, so it is a tool.
+ *   - `PUT /v1/schema` — replacement with `force_drop_existing` discards
+ *     declarations and the rows bound to them. `upload_schema` merges, so the
+ *     worst an agent can do is additive; `drop_schema_type` removes exactly
+ *     one declaration and says what `force` actually consents to.
+ *   - `POST`/`DELETE /v1/spaces` — none of the space verbs takes a path
+ *     parameter, because all three act on the caller's OWN space. A delete is
+ *     "erase this workspace", from one tool call, with no id to get wrong.
+ *   - `POST /v1/memories/vector` — takes a caller-computed embedding. An agent
+ *     has none to supply.
+ *   - `GET /v1/subscribe` — Server-Sent Events. MCP tools are request/response;
+ *     there is no shape here that would not misdescribe what the tool does.
  *
- * Each is reachable from `BrainBackend` for an operator-facing caller. The
- * line is "can a confused or steered agent cause irreversible loss or leak a
- * secret", not "is it a write".
+ * The line is "can a confused or steered agent cause irreversible loss or leak
+ * a secret", not "is it a write" — entity merges, statement supersessions and
+ * schema drops are all writes and all tools, because each is recoverable,
+ * scoped to one record, or both.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -38,7 +50,9 @@ import { registerGraphTools } from "./tools/graph.js";
 import { registerIdentityTools } from "./tools/identity.js";
 import { registerKnowledgeTools } from "./tools/knowledge.js";
 import { registerMemoryTools } from "./tools/memory.js";
+import { registerQueryTools } from "./tools/query.js";
 import { registerSchemaTools } from "./tools/schema.js";
+import { registerWorkspaceTools } from "./tools/workspace.js";
 
 const SERVER_NAME = "brain-mcp";
 // Reported to the client as `serverInfo.version` on initialize, so it has to
@@ -64,6 +78,8 @@ export function buildServer(backend: BrainBackend): McpServer {
   registerEntitiesTools(server, backend);
   registerKnowledgeTools(server, backend);
   registerSchemaTools(server, backend);
+  registerQueryTools(server, backend);
+  registerWorkspaceTools(server, backend);
   registerIdentityTools(server, backend);
 
   return server;

@@ -3,8 +3,15 @@
  *
  * The MCP server is a thin, stateless front for the Brain REST surface
  * (`/v1/*`) — hosted (the gateway) or self-hosted (brain-edge), which share the
- * same JSON contract. It authenticates to that backend with a single bearer API
- * key (M1); per-customer isolation rides the scope headers on every request.
+ * same JSON contract.
+ *
+ * It holds NO credential of its own on the HTTP path. The caller's bearer is
+ * the credential, forwarded to the backend verbatim, so one deployment serves
+ * every user at their own identity and the backend's existing per-key scoping
+ * is what keeps them apart. On stdio there is no request to carry a bearer —
+ * the client owns the process — so the credential comes from the environment.
+ *
+ * The rule, in one line: the credential comes from the transport.
  */
 
 /** A fatal misconfiguration surfaced at startup rather than per request. */
@@ -14,51 +21,20 @@ export interface Config {
   /** Base URL of the Brain REST backend, e.g. `https://api.arc-labs.ai` (hosted
    *  gateway) or `http://localhost:8080` (self-hosted brain-edge). No trailing slash. */
   backendUrl: string;
-  /** Bearer API key sent as `Authorization: Bearer <key>` to the backend. The
-   *  key's principal must be permitted to act on behalf of the customer scopes
-   *  the tools target (a `may_act` service principal for multi-customer use). */
-  apiKey: string;
-  /** Namespace slug sent as the namespace scope header on every request. */
-  namespace: string;
-  /** Header carrying the namespace slug (default `x-brain-namespace`). */
-  namespaceHeader: string;
-  /** Header carrying the per-customer space id (default `x-brain-space`; the
-   *  gateway also still accepts the legacy `x-brain-agent` alias). */
-  scopeHeader: string;
+  /** The credential used on the STDIO path only, from `BRAIN_MCP_API_KEY`.
+   *
+   *  Undefined in HTTP mode, and deliberately not consulted there: a
+   *  server-held fallback is ambient authority. With one, a request that
+   *  forgot its bearer would quietly succeed as whoever the server is — the
+   *  single worst failure this design exists to prevent, because it looks
+   *  exactly like success. */
+  apiKey?: string;
   /** Port the Streamable HTTP transport listens on. */
   port: number;
   /** Host/interface to bind. */
   host: string;
   /** Per-request timeout to the backend, milliseconds. */
   requestTimeoutMs: number;
-  /** OAuth 2.1 resource-server config, or `undefined` when disabled (M1 mode:
-   *  the MCP endpoint is unauthenticated and must sit behind a trust boundary). */
-  oauth?: OAuthConfig;
-}
-
-/**
- * OAuth 2.1 resource-server settings. When present, every MCP request must carry
- * a valid bearer access token issued by {@link OAuthConfig.issuer}; the token's
- * tenant claim selects the Brain namespace. The MCP server never mints tokens —
- * it validates them (RFC 9728 resource server) and points clients at the issuer.
- */
-export interface OAuthConfig {
-  /** Authorization-server issuer URL clients are directed to (RFC 9728
-   *  `authorization_servers`), and the required JWT `iss`. */
-  issuer: string;
-  /** JWKS endpoint used to verify token signatures. */
-  jwksUri: string;
-  /** Resource identifier (RFC 8707) this server accepts tokens for — the JWT
-   *  `aud` must include it. Normally the server's public URL. */
-  audience: string;
-  /** Externally-reachable base URL of this MCP server, for the protected-resource
-   *  metadata document and the `WWW-Authenticate` hint. */
-  publicUrl: string;
-  /** Scopes a token must carry (empty = any valid token). */
-  requiredScopes: string[];
-  /** JWT claim carrying the tenant namespace; falls back to {@link Config.namespace}
-   *  when the claim is absent. */
-  namespaceClaim: string;
 }
 
 function required(name: string): string {
@@ -78,8 +54,14 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/** Load and validate config from the environment. Throws {@link ConfigError}. */
-export function loadConfig(): Config {
+/**
+ * Load and validate config from the environment. Throws {@link ConfigError}.
+ *
+ * `stdio` selects which credential rule applies, so it is a parameter rather
+ * than a second read of `process.argv` — the caller already knows which
+ * transport it is about to start.
+ */
+export function loadConfig(stdio = false): Config {
   const portRaw = optional("BRAIN_MCP_PORT", "3333");
   const port = Number.parseInt(portRaw, 10);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -94,16 +76,16 @@ export function loadConfig(): Config {
     );
   }
 
+  rejectOAuth();
+
   return {
     backendUrl: stripTrailingSlash(required("BRAIN_MCP_BACKEND_URL")),
-    apiKey: required("BRAIN_MCP_API_KEY"),
-    namespace: required("BRAIN_MCP_NAMESPACE"),
-    namespaceHeader: optional("BRAIN_MCP_NAMESPACE_HEADER", "x-brain-namespace"),
-    scopeHeader: optional("BRAIN_MCP_SCOPE_HEADER", "x-brain-space"),
+    // stdio: the client owns the process and holds the key, so the env is the
+    // only place it can come from. HTTP: every request brings its own.
+    apiKey: stdio ? required("BRAIN_MCP_API_KEY") : undefined,
     port,
     host: optional("BRAIN_MCP_HOST", "0.0.0.0"),
     requestTimeoutMs,
-    oauth: loadOAuthConfig(),
   };
 }
 
@@ -111,16 +93,30 @@ function isTruthy(v: string | undefined): boolean {
   return v !== undefined && ["1", "true", "yes", "on"].includes(v.trim().toLowerCase());
 }
 
-/** Load the OAuth block when `BRAIN_MCP_OAUTH_ENABLED` is set; else `undefined`. */
-function loadOAuthConfig(): OAuthConfig | undefined {
-  if (!isTruthy(process.env.BRAIN_MCP_OAUTH_ENABLED)) return undefined;
-  const scopesRaw = optional("BRAIN_MCP_OAUTH_SCOPES", "");
-  return {
-    issuer: stripTrailingSlash(required("BRAIN_MCP_OAUTH_ISSUER")),
-    jwksUri: required("BRAIN_MCP_OAUTH_JWKS_URI"),
-    audience: required("BRAIN_MCP_OAUTH_AUDIENCE"),
-    publicUrl: stripTrailingSlash(required("BRAIN_MCP_PUBLIC_URL")),
-    requiredScopes: scopesRaw ? scopesRaw.split(/[,\s]+/).filter(Boolean) : [],
-    namespaceClaim: optional("BRAIN_MCP_OAUTH_NAMESPACE_CLAIM", "namespace"),
-  };
+/**
+ * Refuse to start when the removed OAuth mode is still configured.
+ *
+ * OAuth and credential pass-through are not two settings — they are two
+ * answers to "what is in the `Authorization` header", and there is one header.
+ * Pass-through puts the caller's Brain credential there; OAuth put a JWT
+ * there and called the backend with a server-held service key, selecting a
+ * namespace from a token claim.
+ *
+ * That selection never worked against the gateway, which ignores the namespace
+ * header for key callers, so every OAuth tenant landed in the service key's
+ * own workspace. An OAuth mode that authenticates the caller and then serves
+ * them someone else's data is worse than none, which is why this is a startup
+ * failure and not a warning: a deployment that sets the flag believes it is
+ * isolating tenants, and it has to find out here rather than from a tenant.
+ */
+function rejectOAuth(): void {
+  if (!isTruthy(process.env.BRAIN_MCP_OAUTH_ENABLED)) return;
+  throw new ConfigError(
+    "BRAIN_MCP_OAUTH_ENABLED is set, but this server no longer has an OAuth " +
+      "mode. The Authorization header now carries the caller's own Brain API " +
+      "key, which the backend resolves to that caller's namespace and space — " +
+      "so each user connects to one shared deployment as themselves, which is " +
+      "what the OAuth mode was reaching for and did not achieve. Unset the " +
+      "flag (and BRAIN_MCP_OAUTH_*) to start.",
+  );
 }

@@ -8,7 +8,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
-import { customerId, fail, ok } from "../result.js";
+import { fail, ok } from "../result.js";
 
 export function registerIdentityTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
@@ -16,15 +16,14 @@ export function registerIdentityTools(server: McpServer, backend: BrainBackend):
     {
       title: "Who am I",
       description:
-        "Report the effective identity (namespace + customer scope) a request " +
-        "runs as. Useful to confirm the server is scoped to the intended customer.",
-      inputSchema: {
-        customer_id: customerId,
-      },
+        "Report the identity this connection runs as — the namespace and space " +
+        "your API key resolves to on the server. Call it first when anything " +
+        "looks like it is reading the wrong workspace.",
+      inputSchema: {},
     },
-    async ({ customer_id }) => {
+    async () => {
       try {
-        return ok(await backend.whoami(customer_id));
+        return ok(await backend.whoami());
       } catch (err) {
         return fail(err);
       }
@@ -37,11 +36,11 @@ export function registerIdentityTools(server: McpServer, backend: BrainBackend):
       description:
         "What this deployment supports — limits, enabled extractor tiers, " +
         "protocol version. Use to check a limit before hitting it.",
-      inputSchema: { customer_id: customerId },
+      inputSchema: {},
     },
-    async ({ customer_id }) => {
+    async () => {
       try {
-        return ok(await backend.capabilities(customer_id));
+        return ok(await backend.capabilities());
       } catch (err) {
         return fail(err);
       }
@@ -55,11 +54,31 @@ export function registerIdentityTools(server: McpServer, backend: BrainBackend):
         "Whether this workspace has an LLM provider key, and which provider and " +
         "model it is for. Returns a display fingerprint, never the key. Use to " +
         "confirm the cause when a write is refused for a missing key.",
-      inputSchema: { customer_id: customerId },
+      inputSchema: {},
     },
-    async ({ customer_id }) => {
+    async () => {
       try {
-        return ok(await backend.getLlmCredential(customer_id));
+        return ok(await backend.getLlmCredential());
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+  server.registerTool(
+    "verify_llm_credential",
+    {
+      title: "Verify LLM credential",
+      description:
+        "Re-check the provider key this workspace already has, by asking the " +
+        "provider. Takes nothing and sends no secret anywhere. A key that " +
+        "worked when it was registered can be revoked later, and without this " +
+        "the first sign is an opaque upstream failure on a write — so run it " +
+        "when extraction or reasoning starts failing for no visible reason.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return ok(await backend.verifyLlmCredential());
       } catch (err) {
         return fail(err);
       }

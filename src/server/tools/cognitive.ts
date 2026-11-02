@@ -8,7 +8,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
-import { customerId, fail, ok } from "../result.js";
+import { fail, ok } from "../result.js";
 
 export function registerCognitiveTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
@@ -17,10 +17,9 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
       title: "Plan",
       description:
         "Find a route from a start state to a goal across what is known about " +
-        "the customer. Use for 'how do we get from here to there' questions; it " +
+        "the workspace. Use for 'how do we get from here to there' questions; it " +
         "reasons over stored facts rather than inventing steps.",
       inputSchema: {
-        customer_id: customerId,
         start: z.string().min(1).describe("The starting state, in plain language."),
         goal: z.string().min(1).describe("The desired end state."),
         max_steps: z
@@ -42,9 +41,9 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
           ),
       },
     },
-    async ({ customer_id, start, goal, max_steps }) => {
+    async ({ start, goal, max_steps }) => {
       try {
-        return ok(await backend.plan(customer_id, start, goal, max_steps));
+        return ok(await backend.plan(start, goal, max_steps));
       } catch (err) {
         return fail(err);
       }
@@ -56,15 +55,14 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
       title: "Reason",
       description:
         "Infer what follows from an observation, given what is already known " +
-        "about the customer. Use to check an implication before acting on it.",
+        "in the workspace. Use to check an implication before acting on it.",
       inputSchema: {
-        customer_id: customerId,
         observation: z.string().min(1).describe("What was observed."),
       },
     },
-    async ({ customer_id, observation }) => {
+    async ({ observation }) => {
       try {
-        return ok(await backend.reason(customer_id, observation));
+        return ok(await backend.reason(observation));
       } catch (err) {
         return fail(err);
       }
