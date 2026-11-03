@@ -60,7 +60,7 @@ const SERVER_NAME = "brain-mcp";
 // published layout puts package.json outside dist/; release-please stamps it
 // via the annotation, which is why this file is in `extra-files`. It had
 // already drifted once -- 0.1.1 shipped reporting 0.1.0.
-const SERVER_VERSION = "0.3.0"; // x-release-please-version
+const SERVER_VERSION = "0.3.1"; // x-release-please-version
 
 /**
  * Build a fresh {@link McpServer} wired to `backend`. In stateless HTTP mode a
