@@ -4,6 +4,7 @@
     ".": {
       "release-type": "node",
       "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
       "package-name": "@brain-db/mcp",
       "changelog-path": "CHANGELOG.md",
       "extra-files": ["src/server/index.ts"],
