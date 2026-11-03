@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.3.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.3.0...v0.3.1) (2026-11-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** move to zod 4, clearing the last production advisory
+
+### Fixes
+
+* **deps:** move to zod 4, clearing the last production advisory ([c893ba2](https://github.com/arc-labs-ai/brain-mcp/commit/c893ba2ea7bea126cf3e42aadaf6d8e8945c137a))
+* **deps:** take the patched MCP SDK, proxy-addr and body-parser ([f6bb81a](https://github.com/arc-labs-ai/brain-mcp/commit/f6bb81a124e28229e74684781388e3875ee6f4b3))
+
+
+### Tests and verification
+
+* **contract:** verify the route of every tool, not four of forty-nine ([17c70eb](https://github.com/arc-labs-ai/brain-mcp/commit/17c70ebaa05e64010bc93ffbd06163927b6789d2))
+
+
+### Build and tooling
+
+* audit production dependencies, so a critical cannot sit unnoticed ([ecd8aaf](https://github.com/arc-labs-ai/brain-mcp/commit/ecd8aafb01fc3ba7b0c67945fff8d9427e2b1442))
+* **release:** keep feat changes on the 0.3 line ([0d8dd22](https://github.com/arc-labs-ai/brain-mcp/commit/0d8dd223705758e914b8ffca9f2b8a1f58b9085f))
+
+
+### Documentation
+
+* drop a hostname that does not resolve, and correct two counts ([58deee2](https://github.com/arc-labs-ai/brain-mcp/commit/58deee25bf504045b7435700028d51b36d562c75))
+* **package:** say 49 tools, not 25, and gate the count ([10c2670](https://github.com/arc-labs-ai/brain-mcp/commit/10c2670452cb48de2090abc9b255ea7f5653872f))
+* show the trace_id line the error renderer actually emits ([b0b6e00](https://github.com/arc-labs-ai/brain-mcp/commit/b0b6e00699ed560f804f86d8e6c85711b053e852))
+
+
+### Chores
+
+* release 0.3.1 ([5a3e31a](https://github.com/arc-labs-ai/brain-mcp/commit/5a3e31a4ca682aa36ea14b1700df6ec8baa8b803))
+
 ## [0.3.0](https://github.com/arc-labs-ai/brain-mcp/compare/v0.2.1...v0.3.0) (2026-11-02)
 
 
