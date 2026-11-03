@@ -11,14 +11,28 @@ permissions:
 
 jobs:
   node:
-    name: Lint, typecheck, test, build
+    name: Node ${{ matrix.node-version }}
     runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # `package.json` says `engines.node >= 20`; testing only one version
+        # left that claim unverified, which is how a floor quietly stops being
+        # true. The ends are what matter — the floor we advertise and the
+        # newest release — plus one in between.
+        #
+        # The floor was `>=18` until it moved here. Node 18 reached EOL in
+        # April 2025, and no vitest that clears the advisories in its own
+        # dependency chain still runs on it (vitest 4 requires
+        # `^20 || ^22 || >=24`), so `>=18` was a claim no supported test
+        # runner could check even in principle.
+        node-version: ["20", "22", "24"]
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install
@@ -40,6 +54,21 @@ jobs:
       # it should rather than where the backlog forced it.
       - name: Audit dependencies (production)
         run: npm audit --omit=dev --audit-level=high
+
+      # Second tier, whole tree including dev. The production gate above
+      # deliberately cannot see a dev-tool advisory — and while it was the only
+      # gate, the dev chain accumulated two criticals (tinypool prototype
+      # pollution to RCE, and a vitest UI arbitrary-file-read) plus a high in
+      # vite. A test runner that can be made to execute attacker-chosen code
+      # still runs on a developer's machine and in this job.
+      #
+      # `critical` rather than `high`, because the dev chain churns: vite and
+      # esbuild publish advisories often, many of them dev-server issues that
+      # never apply to a `vitest run` in CI. Gating the whole tree at `high`
+      # would go red for reasons nobody here can act on, which is how a gate
+      # stops being read. Both tiers pass at zero advisories today.
+      - name: Audit dependencies (whole tree)
+        run: npm audit --audit-level=critical
 
       - name: Lint
         run: npm run lint
