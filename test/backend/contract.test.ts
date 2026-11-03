@@ -58,8 +58,44 @@ beforeAll(async () => {
     } else if (path === "/v1/whoami") {
       res.end(JSON.stringify({ namespace: "acme", bound: true }));
     } else {
-      res.statusCode = 404;
-      res.end(JSON.stringify({ error: "not found" }));
+      // Permissive 200 for the route-table sweep below. The four cases above
+      // keep their exact DTOs because those tests assert on the mapped result;
+      // the sweep asserts only on the request, so the response just has to be
+      // rich enough that result mapping does not throw and mask a route match.
+      res.end(
+        JSON.stringify({
+          memory_id: "42",
+          entity_id: "e",
+          statement_id: "st",
+          relation_id: "r",
+          session_id: "sess",
+          namespace: "acme",
+          space_id: "s",
+          answer_kind: "none",
+          memories: [],
+          items: [],
+          entities: [],
+          statements: [],
+          relations: [],
+          sessions: [],
+          spaces: [],
+          versions: [],
+          extractors: [],
+          directives: [],
+          history: [],
+          nodes: [],
+          edges: [],
+          steps: [],
+          permissions: {},
+          capabilities: {},
+          schema: {},
+          plan: {},
+          trace: {},
+          valid: true,
+          present: false,
+          forgotten: true,
+        }),
+      );
     }
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -165,5 +201,287 @@ describe("brain-mcp → /v1/* contract", () => {
     ]);
     await alice.close();
     await bob.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Every tool, not four of them.
+//
+// The four tests above assert request *bodies* precisely, which is worth doing
+// for the core loop. But they covered 4 of 49 tools, so the method and path
+// of the other 45 — the thing this file calls "the real integration risk" —
+// were unverified. A tool pointed at a route the edge does not serve would
+// have passed every test in this repo and failed on first contact.
+//
+// Each row was produced by driving the tool and recording what it emitted,
+// then checking that route against brain-sdk's `contract/http-routes.json` —
+// the manifest generated from brain-edge's own source. All 49 matched a route
+// the edge actually serves, so this table is pinned truth rather than pinned
+// behaviour. Re-run that cross-check when the edge's surface moves.
+// ---------------------------------------------------------------------------
+
+interface RouteCase {
+  tool: string;
+  args: Record<string, unknown>;
+  method: string;
+  path: string;
+}
+
+const ROUTES: RouteCase[] = [
+  { tool: "capabilities", args: {}, method: "GET", path: "/v1/capabilities" },
+  {
+    tool: "create_entity",
+    args: { entity_type_id: 1, canonical_name: "x" },
+    method: "POST",
+    path: "/v1/entities",
+  },
+  {
+    tool: "create_relation",
+    args: { relation_type: "acme:prefers", from_entity: "x", to_entity: "x" },
+    method: "POST",
+    path: "/v1/relations",
+  },
+  {
+    tool: "create_session",
+    args: { session_id: 0 },
+    method: "POST",
+    path: "/v1/sessions",
+  },
+  {
+    tool: "create_statement",
+    args: {
+      kind: "fact",
+      subject: "x",
+      predicate: "acme:prefers",
+      object: { kind: "entity", id: "e1" },
+    },
+    method: "POST",
+    path: "/v1/statements",
+  },
+  {
+    tool: "delete_entity",
+    args: { entity_id: "x" },
+    method: "DELETE",
+    path: "/v1/entities/x",
+  },
+  {
+    tool: "delete_relation",
+    args: { relation_id: "x" },
+    method: "DELETE",
+    path: "/v1/relations/x",
+  },
+  {
+    tool: "delete_session",
+    args: { session_id: 0 },
+    method: "DELETE",
+    path: "/v1/sessions/0",
+  },
+  {
+    tool: "delete_statement",
+    args: { statement_id: "x" },
+    method: "DELETE",
+    path: "/v1/statements/x",
+  },
+  {
+    tool: "drop_schema_type",
+    args: { kind: "predicate", name: "x" },
+    method: "DELETE",
+    path: "/v1/schema/predicate/x",
+  },
+  {
+    tool: "entity_relations",
+    args: { entity_id: "x" },
+    method: "GET",
+    path: "/v1/entities/x/relations",
+  },
+  {
+    tool: "explain_query",
+    args: { text: "x" },
+    method: "POST",
+    path: "/v1/query/explain",
+  },
+  { tool: "forget", args: { memory_id: "x" }, method: "DELETE", path: "/v1/memories" },
+  { tool: "get_entity", args: { entity_id: "x" }, method: "GET", path: "/v1/entities/x" },
+  {
+    tool: "get_relation",
+    args: { relation_id: "x" },
+    method: "GET",
+    path: "/v1/relations/x",
+  },
+  { tool: "get_schema", args: {}, method: "GET", path: "/v1/schema" },
+  {
+    tool: "get_statement",
+    args: { statement_id: "x" },
+    method: "GET",
+    path: "/v1/statements/x",
+  },
+  { tool: "graph", args: {}, method: "GET", path: "/v1/graph" },
+  {
+    tool: "inspect_memory",
+    args: { memory_id: "x" },
+    method: "GET",
+    path: "/v1/memories/x/inspect",
+  },
+  {
+    tool: "link",
+    args: { source: "x", target: "x", kind: "caused" },
+    method: "POST",
+    path: "/v1/links",
+  },
+  {
+    tool: "list_entities",
+    args: { entity_type_id: 1 },
+    method: "GET",
+    path: "/v1/entities",
+  },
+  { tool: "list_extractors", args: {}, method: "GET", path: "/v1/extractors" },
+  { tool: "list_memories", args: {}, method: "GET", path: "/v1/memories" },
+  { tool: "list_schema_versions", args: {}, method: "GET", path: "/v1/schemas" },
+  { tool: "list_sessions", args: {}, method: "GET", path: "/v1/sessions" },
+  { tool: "list_spaces", args: {}, method: "GET", path: "/v1/spaces" },
+  { tool: "list_statements", args: {}, method: "GET", path: "/v1/statements" },
+  { tool: "llm_credential_status", args: {}, method: "GET", path: "/v1/llm-credential" },
+  {
+    tool: "materialize_directives",
+    args: {},
+    method: "POST",
+    path: "/v1/procedural/materialize",
+  },
+  {
+    tool: "merge_entities",
+    args: { survivor_entity_id: "x", merged_entity_id: "x" },
+    method: "POST",
+    path: "/v1/entities/x/merge",
+  },
+  { tool: "plan", args: { start: "x", goal: "x" }, method: "POST", path: "/v1/plan" },
+  { tool: "reason", args: { observation: "x" }, method: "POST", path: "/v1/reason" },
+  { tool: "recall", args: { query: "x" }, method: "POST", path: "/v1/recall" },
+  { tool: "remember", args: { content: "x" }, method: "POST", path: "/v1/memories" },
+  {
+    tool: "rename_entity",
+    args: { entity_id: "x", new_canonical_name: "x" },
+    method: "POST",
+    path: "/v1/entities/x/rename",
+  },
+  {
+    tool: "resolve_entity",
+    args: { candidate_name: "x" },
+    method: "POST",
+    path: "/v1/entities/resolve",
+  },
+  {
+    tool: "retract_statement",
+    args: { statement_id: "x" },
+    method: "POST",
+    path: "/v1/statements/x/retract",
+  },
+  {
+    tool: "statement_history",
+    args: { statement_id: "x" },
+    method: "GET",
+    path: "/v1/statements/x/history",
+  },
+  {
+    tool: "supersede_relation",
+    args: {
+      relation_id: "x",
+      relation_type: "acme:prefers",
+      from_entity: "x",
+      to_entity: "x",
+    },
+    method: "POST",
+    path: "/v1/relations/x/supersede",
+  },
+  {
+    tool: "supersede_statement",
+    args: {
+      statement_id: "x",
+      kind: "fact",
+      subject: "x",
+      predicate: "acme:prefers",
+      object: { kind: "entity", id: "e1" },
+    },
+    method: "POST",
+    path: "/v1/statements/x/supersede",
+  },
+  { tool: "trace_query", args: { text: "x" }, method: "POST", path: "/v1/query/trace" },
+  {
+    tool: "traverse_entity",
+    args: { entity_id: "x" },
+    method: "POST",
+    path: "/v1/entities/x/traverse",
+  },
+  {
+    tool: "unlink",
+    args: { source: "x", target: "x", kind: "caused" },
+    method: "DELETE",
+    path: "/v1/links",
+  },
+  {
+    tool: "unmerge_entity",
+    args: { entity_id: "x" },
+    method: "POST",
+    path: "/v1/entities/x/unmerge",
+  },
+  {
+    tool: "update_entity",
+    args: { entity_id: "x", canonical_name: "x" },
+    method: "PUT",
+    path: "/v1/entities/x",
+  },
+  {
+    tool: "upload_schema",
+    args: { schema_document: "x" },
+    method: "POST",
+    path: "/v1/schema",
+  },
+  {
+    tool: "validate_schema",
+    args: { schema_document: "x" },
+    method: "POST",
+    path: "/v1/schema/validate",
+  },
+  {
+    tool: "verify_llm_credential",
+    args: {},
+    method: "POST",
+    path: "/v1/llm-credential/verify",
+  },
+  { tool: "whoami", args: {}, method: "GET", path: "/v1/whoami" },
+];
+
+describe("every tool's route", () => {
+  it("covers every registered tool", async () => {
+    // The coverage gate. A tool added without a row here is a tool whose
+    // route nothing checks, which is exactly the hole this suite was in.
+    const c = await client();
+    const { tools } = await c.listTools();
+    await c.close();
+    const registered = new Set(tools.map((t) => t.name));
+    const tabled = new Set(ROUTES.map((r) => r.tool));
+
+    const missing = [...registered].filter((n) => !tabled.has(n)).sort();
+    expect(missing, "tools with no route-table row").toEqual([]);
+
+    const stale = [...tabled].filter((n) => !registered.has(n)).sort();
+    expect(stale, "route-table rows for tools that do not exist").toEqual([]);
+  });
+
+  it.each(ROUTES)("$tool → $method $path", async ({ tool, args, method, path }) => {
+    captured.length = 0;
+    const c = await client();
+    await c.callTool({ name: tool, arguments: args });
+    const req = captured.at(-1);
+    expect(req, `${tool} sent no request at all`).toBeDefined();
+    expect(req?.method, `${tool} method`).toBe(method);
+    expect((req?.url ?? "").split("?")[0], `${tool} path`).toBe(path);
+    // Pass-through holds for every tool, not just the ones with their own test.
+    expect(req?.headers.authorization, `${tool} credential`).toBe(
+      "Bearer brain_test_key",
+    );
+    // And no tool reintroduces the scope headers the gateway ignores for keys.
+    expect(req?.headers["x-brain-namespace"], `${tool} namespace header`).toBeUndefined();
+    expect(req?.headers["x-brain-space"], `${tool} space header`).toBeUndefined();
+    await c.close();
   });
 });
