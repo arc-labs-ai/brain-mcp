@@ -24,6 +24,25 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Nothing here audited dependencies, and it showed: the tree carried a
+      # critical advisory (proxy-addr IP spoofing via an IPv4-mapped IPv6 trust
+      # subnet) plus six highs in the MCP SDK itself — one of them "server
+      # bearer authentication accepted tokens issued for another service",
+      # which lands directly on this server's credential pass-through. All of
+      # it was fixed by refreshing the lockfile; none of it was visible.
+      #
+      # Production scope only: a dev-tool advisory does not reach a deployed
+      # request, and failing this job on one would train people to ignore it.
+      #
+      # `critical` rather than `high` for exactly one reason, and it is meant
+      # to be temporary: zod 3.25.76 carries a high (memory exhaustion while
+      # validating oversized constrained collections) whose only fix is zod 4,
+      # a major upgrade across every tool schema. Raising this to `high` is a
+      # one-word change and should happen the moment that lands — a gate that
+      # is red on arrival is not a gate.
+      - name: Audit dependencies (production)
+        run: npm audit --omit=dev --audit-level=critical
+
       - name: Lint
         run: npm run lint
 
