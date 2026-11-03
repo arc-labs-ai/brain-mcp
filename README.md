@@ -335,7 +335,7 @@ exists yet. When they do, this is where it goes.
 Every tool funnels failures through one renderer, so a condition reads the same
 whichever tool hit it. A failed call comes back as an `isError` result (never a
 thrown exception, which an MCP client reports as a transport fault) with four
-labelled lines:
+labelled lines, plus a fifth when the backend supplied a trace id:
 
 ```
 error: namespace acme has no LLM credential registered
@@ -344,7 +344,13 @@ retry: no — this call will fail identically until the cause below is fixed
 fix: this workspace has no LLM provider key configured. Brain extracts typed
      facts … a workspace admin needs to add an OpenAI or Anthropic key in the
      Arc Labs dashboard under Settings → Providers.
+trace_id: 01a1a1f6-0134-7ae1-8525-aaa6952f8d9d
 ```
+
+The `trace_id` line appears only when the backend sent one — the gateway does
+on every problem response, and it is the difference between "something broke"
+and a line an operator can search, because the gateway withholds 5xx detail
+from the response on purpose and logs it under that id.
 
 The `retry:` line is the part that changes agent behaviour. Left to infer it, an
 agent either retries a terminal failure until it gives up and tells the user
