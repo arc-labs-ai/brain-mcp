@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/arc-labs-ai/brain-mcp/compare/v0.3.1...v0.3.2) (2026-11-03)
+
+
+### Fixes
+
+* **deps:** make patched dependency versions a floor, and test the node range we claim ([#12](https://github.com/arc-labs-ai/brain-mcp/issues/12)) ([9ee5409](https://github.com/arc-labs-ai/brain-mcp/commit/9ee540996815b7ac0af70407e1a51c4e08dd42ae))
+
 ## [0.3.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.3.0...v0.3.1) (2026-11-03)
 
 
