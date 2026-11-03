@@ -10,6 +10,7 @@
  * never render as each other.
  */
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BackendError } from "../../src/backend/index.js";
 import { KNOWN_PROBLEM_CODES, fail } from "../../src/server/result.js";
@@ -99,6 +100,50 @@ describe("fail() error contract", () => {
       ...new Set([...EDGE_CODES, ...GATEWAY_CODES].map(([c]) => c)),
     ].sort();
     expect([...KNOWN_PROBLEM_CODES].sort()).toEqual(expected);
+  });
+
+  /**
+   * The README states this count in prose, and prose does not typecheck. It
+   * said "twelve" while eighteen codes were mapped — stale, and the kind of
+   * number a reader trusts precisely because it is specific. The tool count
+   * drifted the same way in package.json; same fix.
+   */
+  it("agrees with the code count the README advertises", () => {
+    const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+    const words: Record<string, number> = {
+      ten: 10,
+      eleven: 11,
+      twelve: 12,
+      thirteen: 13,
+      fourteen: 14,
+      fifteen: 15,
+      sixteen: 16,
+      seventeen: 17,
+      eighteen: 18,
+      nineteen: 19,
+      twenty: 20,
+      "twenty-one": 21,
+      "twenty-two": 22,
+      "twenty-three": 23,
+      "twenty-four": 24,
+      "twenty-five": 25,
+      "twenty-six": 26,
+      "twenty-seven": 27,
+      "twenty-eight": 28,
+    };
+    const m = /All ([\w-]+) codes \*\*either backend\*\* can emit/.exec(readme);
+    expect(
+      m,
+      "README must state 'All <N> codes **either backend** can emit'",
+    ).not.toBeNull();
+    const claimed = words[(m as RegExpExecArray)[1] as string];
+    expect(
+      claimed,
+      `unrecognised number word: ${(m as RegExpExecArray)[1]}`,
+    ).toBeDefined();
+    expect(claimed, "README code count disagrees with KNOWN_PROBLEM_CODES").toBe(
+      KNOWN_PROBLEM_CODES.length,
+    );
   });
 
   it("reads the gateway's RFC 7807 shape, not just the edge's envelope", () => {

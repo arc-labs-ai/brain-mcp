@@ -5,9 +5,12 @@ database. It exposes Brain's tenant surface as MCP tools over **remote
 Streamable HTTP**, so any MCP client (Claude, ChatGPT, Cursor, Copilot, …) can
 give its agent durable, current-truth memory in one connection.
 
-It is a thin, stateless front for Brain's REST surface (`/v1/*`): point it at the
-hosted **gateway** or a self-hosted **brain-edge** — the JSON contract is the
-same.
+It is a thin, stateless front for Brain's REST surface (`/v1/*`): point
+`BRAIN_MCP_BACKEND_URL` at the hosted **gateway** or a self-hosted
+**brain-edge** — the JSON contract is the same. There is no public hosted
+endpoint to default to yet, so the examples below use `http://127.0.0.1:8080`
+for a local brain-edge and a placeholder host where the backend would be
+remote. Substitute your own deployment's URL in either case.
 
 **It holds no credential of its own.** Each request carries the caller's own
 Brain API key, which the backend resolves to that caller's namespace and space.
@@ -35,7 +38,7 @@ setup for Claude Desktop and Cursor:
       "command": "npx",
       "args": ["-y", "@brain-db/mcp", "--stdio"],
       "env": {
-        "BRAIN_MCP_BACKEND_URL": "https://api.arc-labs.ai",
+        "BRAIN_MCP_BACKEND_URL": "http://127.0.0.1:8080",
         "BRAIN_MCP_API_KEY": "brain_…"
       }
     }
@@ -108,7 +111,7 @@ Published to GHCR on every version tag, multi-arch (`linux/amd64`,
 
 ```bash
 docker run -p 3333:3333 \
-  -e BRAIN_MCP_BACKEND_URL=https://api.arc-labs.ai \
+  -e BRAIN_MCP_BACKEND_URL=https://brain-edge.internal \
   ghcr.io/arc-labs-ai/brain-mcp:latest
 ```
 
@@ -238,7 +241,8 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 | `verify_llm_credential` | — | Re-check the stored key by asking the provider. Takes nothing and sends no secret. A key that worked at registration can be revoked later, and without this the first sign is an opaque upstream failure on a write. |
 ### Deliberately not exposed
 
-Five tenant routes have no tool. The line is not "is it a write" — entity
+Eight tenant routes have no tool, grouped below by the reason. The line is not
+"is it a write" — entity
 merges, statement supersessions and schema drops are all writes and all tools,
 because each is recoverable, scoped to one record, or both. What stays out is
 what a confused or steered agent could use to leak a secret or lose something
@@ -301,7 +305,7 @@ with a mistake.
 Public, no shared secret, no network boundary required:
 
 ```bash
-BRAIN_MCP_BACKEND_URL=https://api.arc-labs.ai brain-mcp
+BRAIN_MCP_BACKEND_URL=https://brain-edge.internal brain-mcp
 ```
 
 A request with no bearer gets a `401` and reaches the backend not at all. There
@@ -349,10 +353,13 @@ second later. The two conditions that are easiest to confuse are kept
 distinct on purpose: `llm_credential.missing` (409, terminal, needs an admin)
 and `llm_credential.unavailable` (503, transient, needs nothing).
 
-All twelve codes `brain-edge` can emit have their own guidance; a code it grows
-later renders as `(unrecognised)` with a status-derived verdict rather than
-being passed through silently. The mapping and its drift guard live in
-`src/server/result.ts` and `test/server/errors.test.ts`.
+All twenty-six codes **either backend** can emit have their own guidance, and
+that span matters: the gateway and brain-edge barely overlap — `unauthorized`
+and `bad_request` against `auth.invalid_key` and `request.malformed` — so a
+table built from one leaves the other almost entirely unrecognised. A code
+either backend grows later renders as `(unrecognised)` with a status-derived
+verdict rather than being passed through silently. The mapping and its drift
+guard live in `src/server/result.ts` and `test/server/errors.test.ts`.
 
 ## License
 
