@@ -34,14 +34,12 @@ jobs:
       # Production scope only: a dev-tool advisory does not reach a deployed
       # request, and failing this job on one would train people to ignore it.
       #
-      # `critical` rather than `high` for exactly one reason, and it is meant
-      # to be temporary: zod 3.25.76 carries a high (memory exhaustion while
-      # validating oversized constrained collections) whose only fix is zod 4,
-      # a major upgrade across every tool schema. Raising this to `high` is a
-      # one-word change and should happen the moment that lands — a gate that
-      # is red on arrival is not a gate.
+      # `high`, not `critical`. It was briefly `critical` because zod 3.25.76
+      # carried an unfixable-without-zod-4 high; that upgrade has landed, the
+      # production tree is clean at zero advisories, and so the gate sits where
+      # it should rather than where the backlog forced it.
       - name: Audit dependencies (production)
-        run: npm audit --omit=dev --audit-level=critical
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
         run: npm run lint
