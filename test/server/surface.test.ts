@@ -202,6 +202,33 @@ describe("brain-mcp server", () => {
     await client.close();
   });
 
+  /**
+   * The npm page's description is the first thing most people read, and it is
+   * the one claim about this surface that nothing checked. It said "25 MCP
+   * tools" while 49 were registered — stale since the commit that widened the
+   * surface to the whole tenant API, and published that way. The README's
+   * count is right because the test above keeps it right; this does the same
+   * for the text npm actually shows.
+   */
+  it("states the registered tool count in the package description", async () => {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { description: string };
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    await client.close();
+
+    const claimed = /(\d+) MCP tools/.exec(pkg.description);
+    expect(
+      claimed,
+      "package.json description must state an 'N MCP tools' count",
+    ).not.toBeNull();
+    expect(
+      Number((claimed as RegExpExecArray)[1]),
+      "package.json description disagrees with the registered tool count",
+    ).toBe(tools.length);
+  });
+
   it("surfaces a backend failure as an isError result, not a throw", async () => {
     // backendUrl points at a closed port, so remember() fails fast — the tool
     // must return isError content rather than crashing the server.
