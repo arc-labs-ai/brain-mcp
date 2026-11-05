@@ -1,0 +1,17 @@
+{
+  "name": "arc-labs",
+  "description": "Plugins from Arc Labs — memory and related tooling for coding agents.",
+  "owner": {
+    "name": "Arc Labs",
+    "url": "https://arc-labs.ai"
+  },
+  "plugins": [
+    {
+      "name": "brain",
+      "source": "./plugins/brain",
+      "description": "Durable memory for your agent, backed by the Brain memory database. Prompts for your API key on install and stores it in your OS keychain.",
+      "category": "memory",
+      "tags": ["memory", "mcp", "recall", "knowledge-graph"]
+    }
+  ]
+}

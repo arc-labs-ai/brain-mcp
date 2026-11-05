@@ -14,12 +14,31 @@
  * The rule, in one line: the credential comes from the transport.
  */
 
+/**
+ * The Brain the server talks to when nothing says otherwise.
+ *
+ * This used to be `required()`, and that one decision was most of the distance
+ * between "install it" and "using it". A first-time user had to supply a URL
+ * that appeared in no client config they were copying and nowhere in the
+ * product — so the common first run was a server that exited 1 before the
+ * client had finished starting it, which clients report as "server failed to
+ * start" with the actual reason buried in stderr.
+ *
+ * It is the STAGING gateway, deliberately and visibly, because that is the
+ * Brain that is publicly reachable today: `api.arc-labs.ai` has no DNS record.
+ * Naming it here makes the dependency legible to anyone reading the config
+ * rather than implicit in a URL they were handed. When a production gateway
+ * exists, this constant is the one place that changes.
+ */
+export const DEFAULT_BACKEND_URL = "https://api.stg.arc-labs.ai";
+
 /** A fatal misconfiguration surfaced at startup rather than per request. */
 export class ConfigError extends Error {}
 
 export interface Config {
-  /** Base URL of the Brain REST backend, e.g. `https://api.arc-labs.ai` (hosted
-   *  gateway) or `http://localhost:8080` (self-hosted brain-edge). No trailing slash. */
+  /** Base URL of the Brain REST backend — the hosted gateway, or
+   *  `http://localhost:8080` for a self-hosted brain-edge. No trailing slash.
+   *  Defaults to {@link DEFAULT_BACKEND_URL}. */
   backendUrl: string;
   /** The credential used on the STDIO path only, from `BRAIN_MCP_API_KEY`.
    *
@@ -79,7 +98,9 @@ export function loadConfig(stdio = false): Config {
   rejectOAuth();
 
   return {
-    backendUrl: stripTrailingSlash(required("BRAIN_MCP_BACKEND_URL")),
+    backendUrl: stripTrailingSlash(
+      optional("BRAIN_MCP_BACKEND_URL", DEFAULT_BACKEND_URL),
+    ),
     // stdio: the client owns the process and holds the key, so the env is the
     // only place it can come from. HTTP: every request brings its own.
     apiKey: stdio ? required("BRAIN_MCP_API_KEY") : undefined,

@@ -1,0 +1,39 @@
+{
+  "name": "brain",
+  "displayName": "Brain",
+  "version": "0.1.0",
+  "description": "Durable, current-truth memory for your agent: remember, recall, reason, and a typed entity graph, backed by the Brain memory database.",
+  "author": {
+    "name": "Arc Labs",
+    "url": "https://arc-labs.ai"
+  },
+  "homepage": "https://github.com/arc-labs-ai/brain-mcp#readme",
+  "repository": "https://github.com/arc-labs-ai/brain-mcp",
+  "license": "Apache-2.0",
+  "keywords": ["memory", "mcp", "brain", "ai-agents"],
+  "mcpServers": {
+    "brain": {
+      "command": "npx",
+      "args": ["-y", "@brain-db/mcp", "--stdio"],
+      "env": {
+        "BRAIN_MCP_BACKEND_URL": "${user_config.backend_url}",
+        "BRAIN_MCP_API_KEY": "${user_config.api_key}"
+      }
+    }
+  },
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Brain API key",
+      "description": "Your own key, from the dashboard under API Keys. Every call runs as you; the key never leaves this machine.",
+      "required": true,
+      "sensitive": true
+    },
+    "backend_url": {
+      "type": "string",
+      "title": "Brain backend",
+      "description": "The Brain this connects to. Leave the default for the hosted gateway, or point it at a local brain-edge (http://localhost:8080).",
+      "default": "https://api.stg.arc-labs.ai"
+    }
+  }
+}

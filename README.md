@@ -7,10 +7,9 @@ give its agent durable, current-truth memory in one connection.
 
 It is a thin, stateless front for Brain's REST surface (`/v1/*`): point
 `BRAIN_MCP_BACKEND_URL` at the hosted **gateway** or a self-hosted
-**brain-edge** — the JSON contract is the same. There is no public hosted
-endpoint to default to yet, so the examples below use `http://127.0.0.1:8080`
-for a local brain-edge and a placeholder host where the backend would be
-remote. Substitute your own deployment's URL in either case.
+**brain-edge** — the JSON contract is the same. It defaults to
+`https://api.stg.arc-labs.ai`, the Brain that is publicly reachable today, so
+a first run needs a key and nothing else.
 
 **It holds no credential of its own.** Each request carries the caller's own
 Brain API key, which the backend resolves to that caller's namespace and space.
@@ -20,16 +19,67 @@ anything this server decides. See [Identity](#identity).
 
 ## Quick start
 
+Get a key from the dashboard under **API Keys**, then:
+
 ```bash
-npm install -g @brain-db/mcp
+npx @brain-db/mcp init
 ```
 
-### Connect a client
+It asks for the key, **checks it against the backend before writing anything**,
+then finds the MCP clients on this machine and configures each one:
+
+```
+  brain-mcp init
+  backend   https://api.stg.arc-labs.ai
+  key       valid — acme / research-agent
+
+  ✓ Claude Code      via `claude mcp add`
+  ✓ Codex CLI        via `codex mcp add`
+  ✓ Cursor           /Users/you/.cursor/mcp.json
+
+  Restart the client, then try:
+    "remember that I prefer pnpm over npm"
+    "what do you remember about my tooling?"
+```
+
+Nothing is written until the key verifies, because a half-configured machine
+fails later and somewhere else — inside an agent turn, as a broken tool rather
+than a wrong key.
+
+| Flag | Meaning |
+|---|---|
+| `--key <k>` | The key, instead of being asked. Also read from `BRAIN_MCP_API_KEY` |
+| `--backend <url>` | A different Brain, e.g. `http://localhost:8080` for a local brain-edge |
+| `--client <id>` | Only this client: `claude-code`, `codex`, `cursor`, `claude-desktop`, `windsurf`. Repeatable, and it configures the client whether or not it was detected |
+| `--name <n>` | Register under a different server name. Default `brain` |
+| `--dry-run` | Do every check and every merge, write nothing |
+| `--yes` | Never prompt; fail instead. For CI |
+
+`init` preserves the MCP servers already in a config, backs up each file it
+edits to `<file>.brain-backup`, and refuses a file it cannot parse rather than
+replacing it. For Claude Code and Codex it calls their own `mcp add`, which
+owns the file format — that is also why Codex's TOML works without this
+package knowing any TOML.
+
+### Claude Code: install as a plugin
+
+A plugin is one command, and it keeps the key in your OS keychain rather than
+in a config file:
+
+```
+/plugin install brain --marketplace arc-labs-ai/brain-mcp
+```
+
+Claude Code prompts for your Brain API key on install, stores it as a
+`sensitive` option, and substitutes it into the server's environment. The
+plugin also carries a skill that tells the agent when memory is worth writing
+and what never belongs in it.
+
+### Connect a client by hand
 
 brain-mcp speaks MCP two ways. Pick the one your client uses.
 
-**stdio** — the client starts and owns the process. This is the usual local
-setup for Claude Desktop and Cursor:
+**stdio** — the client starts and owns the process:
 
 ```json
 {
@@ -38,13 +88,15 @@ setup for Claude Desktop and Cursor:
       "command": "npx",
       "args": ["-y", "@brain-db/mcp", "--stdio"],
       "env": {
-        "BRAIN_MCP_BACKEND_URL": "http://127.0.0.1:8080",
         "BRAIN_MCP_API_KEY": "brain_…"
       }
     }
   }
 }
 ```
+
+`BRAIN_MCP_BACKEND_URL` is optional; set it to reach a brain-edge at
+`http://127.0.0.1:8080` or any other deployment.
 
 **Remote HTTP** — one deployment, many users. Each client sends its own key:
 
@@ -97,7 +149,7 @@ Liveness: `curl -fsS localhost:3333/healthz`.
 
 | Env var | Required | Default | Meaning |
 |---|---|---|---|
-| `BRAIN_MCP_BACKEND_URL` | yes | — | Brain REST base URL (gateway or brain-edge). |
+| `BRAIN_MCP_BACKEND_URL` | no | `https://api.stg.arc-labs.ai` | Brain REST base URL (gateway or brain-edge). |
 | `BRAIN_MCP_API_KEY` | stdio only | — | The caller's Brain key. Required with `--stdio`; **ignored** over HTTP, where each request carries its own. |
 | `BRAIN_MCP_STDIO` | no | `false` | Serve MCP over stdin/stdout instead of HTTP (same as `--stdio`). The port/host settings are unused in that mode. |
 | `BRAIN_MCP_PORT` | no | `3333` | Listen port (HTTP only). |
