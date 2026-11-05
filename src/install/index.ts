@@ -18,7 +18,7 @@ import { createInterface } from "node:readline/promises";
 import { DEFAULT_BACKEND_URL } from "../config/index.js";
 import { type ClientTarget, type ServerSpec, targets } from "./clients.js";
 import { VerifyError, verify } from "./verify.js";
-import { type Outcome, detect, install } from "./write.js";
+import { type Outcome, detect, install, pluginServes } from "./write.js";
 
 /**
  * The npm spec written into every client config.
@@ -213,7 +213,18 @@ export async function runInit(opts: InitOptions): Promise<number> {
     return 1;
   }
 
-  const outcomes: Outcome[] = present.map((t) => install(t, spec, opts.dryRun));
+  const outcomes: Outcome[] = present.map((t) => {
+    // Writing a second `brain` into Claude Code would shadow the plugin's,
+    // leaving the plugin healthy-looking and inert. Skipping says so.
+    if (t.id === "claude-code" && pluginServes(spec.name)) {
+      return {
+        client: t,
+        status: "skipped" as const,
+        detail: `the ${spec.name} plugin already serves this — a second one would shadow it`,
+      };
+    }
+    return install(t, spec, opts.dryRun);
+  });
   for (const o of outcomes) {
     const mark = o.status === "written" ? "✓" : o.status === "skipped" ? "–" : "✗";
     say(`  ${mark} ${o.client.label.padEnd(16)} ${o.detail}`);
@@ -221,13 +232,14 @@ export async function runInit(opts: InitOptions): Promise<number> {
 
   const failed = outcomes.filter((o) => o.status === "failed");
   const ok = outcomes.filter((o) => o.status === "written");
+  const skipped = outcomes.filter((o) => o.status === "skipped");
 
   say();
   if (opts.dryRun) {
     say("  --dry-run: nothing was written.");
     return failed.length > 0 ? 1 : 0;
   }
-  if (ok.length > 0) {
+  if (ok.length > 0 || skipped.length > 0) {
     say("  Restart the client, then try:");
     say('    "remember that I prefer pnpm over npm"');
     say('    "what do you remember about my tooling?"');

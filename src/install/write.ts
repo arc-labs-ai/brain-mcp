@@ -30,6 +30,44 @@ export interface Outcome {
   detail: string;
 }
 
+/**
+ * Whether Claude Code already serves this server name from a plugin.
+ *
+ * A user-scoped server SHADOWS a plugin's server of the same name — verified
+ * by removing one and watching the other reappear in `claude mcp list`. Both
+ * paths this package ships register `brain`, so a machine that ran `init` and
+ * then installed the plugin ends up with the plugin enabled, its skill
+ * loading, its key sitting unused in the OS keychain, and the server actually
+ * answering being the one with a plaintext key in a config file.
+ *
+ * Nothing about that looks wrong from the outside, which is the reason to
+ * detect it rather than document it.
+ */
+export function pluginServes(serverName: string): boolean {
+  try {
+    const out = execFileSync("claude", ["plugin", "list", "--json"], {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15_000,
+    }).toString();
+    const plugins = JSON.parse(out) as Array<{
+      id?: string;
+      enabled?: boolean;
+      mcpServers?: unknown;
+    }>;
+    return plugins.some(
+      (p) =>
+        p.enabled === true &&
+        typeof p.id === "string" &&
+        p.id.split("@")[0] === serverName,
+    );
+  } catch {
+    // No claude, an older build without --json, or output that did not parse.
+    // Any of those means we cannot tell, and guessing "yes" would skip a
+    // client the user asked for.
+    return false;
+  }
+}
+
 /** Whether the client appears to be installed on this machine. */
 export function detect(target: ClientTarget): boolean {
   if (target.writer.kind === "cli") return onPath(target.writer.bin);
