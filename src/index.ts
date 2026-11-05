@@ -15,6 +15,8 @@
  * rather than behind a shared-secret gate.
  */
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express, {
@@ -25,6 +27,7 @@ import express, {
 } from "express";
 import { BrainBackend } from "./backend/index.js";
 import { type Config, ConfigError, loadConfig } from "./config/index.js";
+import { parseInitArgs, runInit } from "./install/index.js";
 import { buildServer } from "./server/index.js";
 
 const JSONRPC_METHOD_NOT_ALLOWED = -32000;
@@ -160,6 +163,32 @@ export function buildApp(cfg: Config): Express {
 }
 
 async function main(): Promise<void> {
+  /*
+   * `init` is checked before anything else reads the environment.
+   *
+   * It is the one subcommand that runs when the machine is NOT yet configured
+   * — that is its entire job — so it must not go through `loadConfig`, which
+   * exists to refuse exactly that state. Routing it first also keeps the
+   * transport selection below unchanged: `init` is not a third transport.
+   */
+  const argv = process.argv.slice(2);
+  if (argv[0] === "init") {
+    let opts: ReturnType<typeof parseInitArgs>;
+    try {
+      opts = parseInitArgs(argv.slice(1));
+    } catch (err) {
+      console.error(
+        `brain-mcp init: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      console.error(
+        "usage: brain-mcp init [--key <k>] [--backend <url>] " +
+          "[--client <id>]… [--name <n>] [--dry-run] [--yes]",
+      );
+      process.exit(2);
+    }
+    process.exit(await runInit(opts));
+  }
+
   const stdio = wantsStdio();
   let cfg: Config;
   try {
@@ -228,8 +257,42 @@ async function serveStdio(cfg: Config): Promise<void> {
   await server.connect(transport);
 }
 
+/**
+ * Whether this module is the program, rather than an import.
+ *
+ * This used to be `import.meta.url === \`file://${process.argv[1]}\``, and that
+ * comparison is false in the one way the package is actually installed. npm
+ * puts a `bin` on PATH as a SYMLINK — `node_modules/.bin/brain-mcp` pointing
+ * at `dist/index.js` — so `process.argv[1]` is the link while
+ * `import.meta.url` is the target it resolves to. The strings differ, `main()`
+ * never ran, and the process exited 0 having done nothing.
+ *
+ * Nothing about that looks like a failure from the outside. The client starts
+ * the server, the server exits cleanly, and the client reports
+ * `CONNECTION_CLOSED` — which reads as a crash, a bad key, or a network
+ * problem, none of which it is. Every `npx -y @brain-db/mcp --stdio` config in
+ * the README was affected, which is to say the documented way to install this
+ * package could not work.
+ *
+ * Comparing resolved real paths fixes the symlink, and going through
+ * `fileURLToPath` fixes the second latent bug in the old line: `file://` +
+ * a raw path is not a valid URL once the path contains a space or any
+ * non-ASCII character, so a checkout under `~/My Projects/` failed the same
+ * way for a different reason.
+ */
+function isEntrypoint(): boolean {
+  const invoked = process.argv[1];
+  if (invoked === undefined) return false;
+  try {
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    // A path that cannot be resolved is not this file.
+    return false;
+  }
+}
+
 // Only start a listener when run directly, not when imported by tests.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint()) {
   main().catch((err) => {
     // stderr, never stdout: on the stdio transport stdout carries protocol
     // frames and a stray line is a parse error at the client.
