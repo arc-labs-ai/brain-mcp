@@ -18,12 +18,17 @@ export function registerQueryTools(server: McpServer, backend: BrainBackend): vo
   server.registerTool(
     "explain_query",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Explain query",
       description:
-        "Show the plan Brain would use for a query, and what it expects that " +
-        "to cost — without running it. Use when a recall came back slow or " +
-        "empty and you want to know why before trying again. The cost is an " +
-        "estimate; trace_query measures.",
+        "Show the plan Brain WOULD use for a query and what it expects that " +
+        "to cost. Does not execute. Use when a query returned something " +
+        "surprising and you want to know which stage decided it. To measure a " +
+        "slow query instead, use `trace_query`.",
       inputSchema: {
         text: z.string().min(1).describe("The query text you would have recalled with."),
       },
@@ -39,11 +44,17 @@ export function registerQueryTools(server: McpServer, backend: BrainBackend): vo
   server.registerTool(
     "trace_query",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Trace query",
       description:
-        "Run a query and report what each stage actually cost. Note that this " +
-        "RUNS the query — it is not the free counterpart to explain_query. " +
-        "Reach for it when the plan looks reasonable but the latency does not.",
+        "Run a query and report what each stage ACTUALLY cost. This EXECUTES " +
+        "the query — it is not a dry run and not free. Use when something is " +
+        "slow and you need the stage responsible; use `explain_query` when " +
+        "the plan alone will do.",
       inputSchema: {
         text: z.string().min(1).describe("The query text to run and measure."),
       },

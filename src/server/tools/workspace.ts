@@ -21,6 +21,11 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "create_session",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
       title: "Create session",
       description:
         "Provision a session to attribute later writes to, so one " +
@@ -48,6 +53,11 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "list_sessions",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "List sessions",
       description: "The sessions in this workspace, newest activity first.",
       inputSchema: {
@@ -65,6 +75,11 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "delete_session",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Delete session",
       description:
         "Retire a session. Soft by default, which leaves its memories in " +
@@ -89,6 +104,11 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "list_spaces",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "List spaces",
       description:
         "The spaces this credential can see, with when each was last active. " +

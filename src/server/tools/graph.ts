@@ -14,6 +14,11 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
   server.registerTool(
     "link",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Link memories",
       description:
         "Connect two memories with a typed edge (caused, followed_by, " +
@@ -38,6 +43,11 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
   server.registerTool(
     "unlink",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Unlink memories",
       description: "Remove a typed edge between two memories. Idempotent.",
       inputSchema: {
@@ -57,6 +67,11 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
   server.registerTool(
     "graph",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Read the graph",
       description:
         "A page of the workspace's knowledge graph — entities and the relations " +

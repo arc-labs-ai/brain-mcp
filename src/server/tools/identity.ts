@@ -14,6 +14,11 @@ export function registerIdentityTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "whoami",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Who am I",
       description:
         "Report the identity this connection runs as — the namespace and space " +
@@ -32,6 +37,11 @@ export function registerIdentityTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "capabilities",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Capabilities",
       description:
         "What this deployment supports — limits, enabled extractor tiers, " +
@@ -49,6 +59,11 @@ export function registerIdentityTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "llm_credential_status",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "LLM provider key status",
       description:
         "Whether this workspace has an LLM provider key, and which provider and " +
@@ -67,6 +82,11 @@ export function registerIdentityTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "verify_llm_credential",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Verify LLM credential",
       description:
         "Re-check the provider key this workspace already has, by asking the " +

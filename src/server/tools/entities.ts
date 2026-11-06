@@ -14,11 +14,19 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "create_entity",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
       title: "Create entity",
       description:
-        "Declare an entity of a known type. Creating one that already exists " +
-        "under the same name is a conflict, not a silent no-op — resolve_entity " +
-        "first if you are unsure.",
+        "Declare an entity of a type the workspace already knows (see " +
+        "`get_schema` — an undeclared type is rejected, not invented). Call " +
+        "`resolve_entity` first: creating one that exists is an error. Build " +
+        "entities when the domain has objects you will QUERY ACROSS — people, " +
+        "services, repositories. For loose prose, `remember` already extracts " +
+        "what it can.",
       inputSchema: {
         entity_type_id: z.number().int().min(1).describe("Declared entity type id."),
         canonical_name: z.string().min(1).describe("Canonical name for the entity."),
@@ -35,6 +43,11 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "list_entities",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "List entities",
       description:
         "Entities of one type. The type is required — listing across every type " +
@@ -56,11 +69,18 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "resolve_entity",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Resolve entity",
       description:
-        "Map a surface form ('the Acme account', 'Priya') to the entity it " +
-        "refers to, or report no match. Use before creating, and before " +
-        "assuming two mentions are the same thing.",
+        'Map a surface form — "the Acme account", "Priya", "that repo" — onto ' +
+        "the entity it means. START HERE before `create_entity`: creating one " +
+        "that already exists is an error, and the name a person says is " +
+        'rarely the canonical one. Example: resolve_entity("the billing ' +
+        'service") before asserting anything about it.',
       inputSchema: {
         candidate_name: z.string().min(1).describe("The name or mention to resolve."),
       },
@@ -76,6 +96,11 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "get_entity",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Get entity",
       description: "One entity by id, with its canonical name, type and attributes.",
       inputSchema: {
@@ -93,10 +118,18 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "traverse_entity",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Traverse from entity",
       description:
-        "Walk outward from an entity along its relations. Use to answer 'what " +
-        "is connected to this, and how' without pulling the whole graph.",
+        'Walk outward from an entity along its relations — "what does this ' +
+        'depend on", "who else touches this service". Use this rather than ' +
+        "fetching entities one at a time and joining them yourself. For the " +
+        "edges on a single entity without walking further, use " +
+        "`entity_relations`.",
       inputSchema: {
         entity_id: z.string().min(1).describe("Entity to start from."),
         depth: z.number().int().min(1).max(5).optional().describe("Hops to walk."),
@@ -114,6 +147,11 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "entity_relations",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Entity relations",
       description: "The relations attached to one entity, without walking further out.",
       inputSchema: {
@@ -139,13 +177,18 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "update_entity",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Update entity",
       description:
-        "Replace an entity's name, aliases and attributes WHOLESALE. This is a " +
-        "replace, not a patch: omitting aliases CLEARS them. Call get_entity " +
-        "first and send back the full list with your change applied. To change " +
-        "only the name, use rename_entity instead — it keeps the old name as an " +
-        "alias so older text still resolves.",
+        "Replace an entity's name, aliases and attributes WHOLESALE — " +
+        "anything you omit is dropped, so send every field you mean to keep. " +
+        "When only the name changed, use `rename_entity` instead: it keeps " +
+        "the old name as an alias, which is what lets `resolve_entity` still " +
+        "find it by what people used to call it.",
       inputSchema: {
         entity_id: z.string().min(1).describe("The entity to update."),
         canonical_name: z.string().min(1).describe("The new canonical display name."),
@@ -172,13 +215,18 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "rename_entity",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Rename entity",
       description:
-        "Give an entity a new canonical name, keeping the old one as an alias. " +
-        "Prefer this over update_entity for a name change: the name an entity " +
-        "was known by is how a mention in older text still resolves to it, so " +
-        "dropping it silently breaks resolution for everything written before " +
-        "the rename.",
+        "Give an entity a new canonical name, keeping the old one as an " +
+        "alias. Use this rather than `update_entity` when only the name " +
+        "changed — `update_entity` replaces wholesale and would drop the " +
+        "alias, after which `resolve_entity` can no longer find it by its old " +
+        "name.",
       inputSchema: {
         entity_id: z.string().min(1).describe("The entity to rename."),
         new_canonical_name: z.string().min(1).describe("The new canonical display name."),
@@ -204,13 +252,18 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "merge_entities",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      },
       title: "Merge entities",
       description:
-        "Fold one entity into another when both describe the same thing. " +
-        "survivor_entity_id is the one that REMAINS; merged_entity_id is " +
-        "absorbed into it and stops appearing on its own. Check both with " +
-        "get_entity before calling — the direction is not symmetric, and " +
-        "unmerge_entity is the only way back.",
+        "Fold one entity into another when both describe the same thing — two " +
+        "records for one person, a service under two names. Reversible with " +
+        "`unmerge_entity`. Merge on clear evidence only: a merged graph reads " +
+        "as settled fact to everything downstream, so when it is a guess, ask " +
+        "first.",
       inputSchema: {
         survivor_entity_id: z.string().min(1).describe("The entity that remains."),
         merged_entity_id: z.string().min(1).describe("The entity folded into it."),
@@ -239,6 +292,11 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "unmerge_entity",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Unmerge entity",
       description:
         "Pull an entity back out of the survivor it was merged into — the " +
@@ -259,6 +317,11 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
   server.registerTool(
     "delete_entity",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Delete entity",
       description:
         "Tombstone an entity so it stops appearing in listings and traversals. " +

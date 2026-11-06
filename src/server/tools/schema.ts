@@ -14,6 +14,11 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "get_schema",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Get schema",
       description:
         "The entity and relation types declared for this workspace. Read this " +
@@ -31,6 +36,11 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "validate_schema",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Validate schema",
       description:
         "Check a schema document without storing it. Use before upload_schema " +
@@ -63,6 +73,11 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "upload_schema",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Upload schema",
       description:
         "Merge new declarations into the workspace schema. Additive: it cannot " +
@@ -96,6 +111,11 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "list_schema_versions",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "List schema versions",
       description:
         "Page through the schema's version history. Distinct from get_schema, " +
@@ -118,6 +138,11 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "list_extractors",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "List extractors",
       description:
         "The extractors registered for this workspace — what will read a new " +
@@ -136,6 +161,11 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "drop_schema_type",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Drop schema type",
       description:
         "Remove one declared predicate or relation type. Only those two kinds " +

@@ -152,6 +152,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "list_statements",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "List statements",
       description:
         "Page through the subject–predicate–object facts extracted from this " +
@@ -173,6 +178,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "get_statement",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Get statement",
       description: "One statement by id, with the memory it came from.",
       inputSchema: {
@@ -190,6 +200,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "get_relation",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Get relation",
       description: "One relation by id, with its endpoints and type.",
       inputSchema: {
@@ -207,6 +222,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "statement_history",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Statement history",
       description:
         "The full supersession chain for a claim, oldest to newest. Reach for " +
@@ -232,6 +252,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "create_statement",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
       title: "Create statement",
       description:
         "Assert a claim directly, rather than waiting for extraction to infer " +
@@ -252,13 +277,18 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "supersede_statement",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
       title: "Supersede statement",
       description:
-        "Replace a claim with a corrected one, keeping both and the link " +
-        "between them. This is the right tool when something CHANGED or was " +
-        "wrong — not delete_statement, which removes the claim and the history " +
-        "of having believed it. The replacement is a whole statement, so send " +
-        "every field, not just the one that changed.",
+        "Replace a claim with a corrected one. BOTH survive, linked, and the " +
+        "new one becomes current — this is almost always the right way to " +
+        'correct something, because it keeps "what changed and when" ' +
+        'answerable. Example: "Priya owns billing" superseded by "Raj owns ' +
+        'billing". Send every field of the replacement; this is not a patch.',
       inputSchema: {
         statement_id: z.string().min(1).describe("The claim being replaced."),
         ...statementFields,
@@ -275,11 +305,17 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "delete_statement",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Delete statement",
       description:
-        "Soft-tombstone a claim. The row survives for audit and stops being " +
-        "returned. If the claim was superseded rather than mistaken, use " +
-        "supersede_statement — it preserves what was believed and when.",
+        "Soft-tombstone a claim: the row survives for audit and stops being " +
+        "returned. Use when the claim should not have been recorded at all. " +
+        "To CORRECT a claim use `supersede_statement`, which keeps the chain; " +
+        "to destroy the content itself use `retract_statement`.",
       inputSchema: {
         statement_id: z.string().min(1).describe("The claim to tombstone."),
         reason: retireReason,
@@ -302,13 +338,20 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "retract_statement",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Retract statement",
       description:
-        "Retract a claim so its CONTENT does not survive — the stronger form " +
-        "of delete_statement, for something that should never have been " +
-        "recorded. A tombstone keeps the row for audit; a retraction marks it " +
-        "for physical removal. Prefer delete_statement unless the content " +
-        "itself is the problem.",
+        "Retract a claim so its CONTENT does not survive — the strongest " +
+        "removal here. For something that should never have existed: a secret " +
+        "pasted by accident, a false and harmful claim about a person. Prefer " +
+        "`delete_statement` (keeps an audit row) or `supersede_statement` " +
+        "(keeps the chain); reach for this only when the content itself is " +
+        'the problem, because it destroys the history that makes "what ' +
+        'changed" answerable.',
       inputSchema: {
         statement_id: z.string().min(1).describe("The claim to retract."),
         reason: retireReason,
@@ -331,6 +374,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "create_relation",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
       title: "Create relation",
       description:
         "Assert a typed edge between two entities. The relation type is " +
@@ -350,6 +398,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "supersede_relation",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
       title: "Supersede relation",
       description:
         "Replace an edge with a corrected one, keeping the chain. Send every " +
@@ -371,6 +424,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "delete_relation",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Delete relation",
       description:
         "Tombstone a typed edge. Traversals stop crossing it. If the edge is " +

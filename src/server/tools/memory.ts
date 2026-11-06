@@ -14,10 +14,21 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "remember",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
       title: "Remember",
       description:
-        "Store a fact, event, or conversation turn. Brain extracts " +
-        "typed facts and supersedes stale ones automatically. Returns the memory id.",
+        "Store something a FUTURE session would be worse without: a " +
+        "preference, a decision and its reason, a fact about a person or " +
+        "system. Brain extracts typed facts and supersedes ones that changed " +
+        "— so correcting a fact is another `remember`, never a `forget`. " +
+        "Returns the memory id (a long decimal string, NOT a UUID). Example: " +
+        '"Priya owns the billing service; we chose Postgres over Dynamo for ' +
+        'the join". Do not store secrets, file contents you just read, or a ' +
+        "restatement of the previous message.",
       inputSchema: {
         content: z
           .string()
@@ -45,11 +56,22 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "recall",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Recall",
       description:
-        "Retrieve the current, consistent truth against a query. " +
-        "Returns an answer shape (single / many / none) with evidence and " +
-        "confidence — stale and contradicted facts are already resolved server-side.",
+        "Ask a question, get the CURRENT answer — stale and contradicted " +
+        "facts are already resolved server-side. Returns an answer shape: " +
+        "`single` (one answer), `multiple` (several are true at once — say so " +
+        "rather than picking), or `none` (Brain holds nothing; this is a real " +
+        "answer, not an error). Ranks by SIMILARITY, not recency, so a stale " +
+        "claim can outrank its correction — use `statement_history` when that " +
+        "matters. Use this when you have a question; use `list_memories` only " +
+        'to browse what exists. Example: recall("what database did we choose ' +
+        'and why").',
       inputSchema: {
         query: z.string().min(1).describe("What you want to know."),
         max_results: z
@@ -72,11 +94,19 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "forget",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
       title: "Forget",
       description:
-        "Delete a specific memory. Soft by default (tombstone with " +
-        "a grace window); set hard=true to zero it immediately. Cascades to " +
-        "dependent facts.",
+        "Delete ONE memory by id, for something that should never have been " +
+        "stored — wrong, private, or noise. This is NOT how to update a fact: " +
+        "a changed fact is another `remember`, which supersedes the old one " +
+        'and keeps the chain so "what did we think before" stays answerable. ' +
+        "Soft by default (tombstone); hard delete destroys the content. Takes " +
+        "a memory id (long decimal), not a UUID.",
       inputSchema: {
         memory_id: z
           .string()
@@ -99,11 +129,18 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "list_memories",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "List memories",
       description:
-        "Page through what is stored, newest first. Use when you " +
-        "need to see what exists rather than answer a question — recall is for " +
-        "questions, this is for inventory.",
+        'Page through what is stored, newest first. For BROWSING — "what do ' +
+        'you have about me", an audit, or showing a user their own data. When ' +
+        "you have a question, use `recall` instead: it resolves " +
+        "contradictions and ranks by relevance, and this does neither. " +
+        'Example: answering "show me everything you remember".',
       inputSchema: {
         // Brain's MEMORY_LIST caps the page at 100 (`handlers/memory_list.rs`,
         // MAX_LIMIT). Advertising 200 meant 101..200 passed validation here
@@ -124,14 +161,18 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "inspect_memory",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Inspect memory",
       description:
-        "Everything behind one memory: the typed facts extracted from it, its " +
-        "provenance, how it scored, and `edges` — the links to and from other " +
-        "memories, including any you asserted with `link`. This is the only " +
-        "way to read those back; `graph` is a different layer (typed entities " +
-        "and relations) and never shows them. Use when an answer looks wrong " +
-        "and you need to see why that memory was or was not used.",
+        "Everything behind ONE memory: the typed facts drawn from it, its " +
+        "provenance, how it scored, and its edges to other memories. Use when " +
+        "a recall returned something surprising and you want to know why THAT " +
+        "memory matched. Takes a memory id (long decimal) — passing a " +
+        "statement or entity UUID here resolves to nothing.",
       inputSchema: {
         memory_id: z.string().min(1).describe("The memory id to inspect."),
       },
@@ -147,6 +188,11 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
   server.registerTool(
     "materialize_directives",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Materialize directives",
       description:
         "Render this workspace's stored directives — the standing instructions " +

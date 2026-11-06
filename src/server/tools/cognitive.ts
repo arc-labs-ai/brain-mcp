@@ -14,6 +14,11 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "plan",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Plan",
       description:
         "Find a route from a start state to a goal across what is known about " +
@@ -52,6 +57,11 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
   server.registerTool(
     "reason",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
       title: "Reason",
       description:
         "Infer what follows from an observation, given what is already known " +
