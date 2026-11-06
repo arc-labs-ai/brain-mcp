@@ -1,7 +1,7 @@
 {
   "name": "@brain-db/mcp",
   "version": "0.3.2",
-  "description": "MCP server for the Brain memory database: memory, reasoning, typed entities, graph, schema and identity as 49 MCP tools, over stdio or Streamable HTTP. To set a machine up, use @brain-db/cli — this is the server it configures.",
+  "description": "MCP server for the Brain memory database: memory, reasoning, typed entities, graph, schema and identity as 49 MCP tools, over stdio or Streamable HTTP. To set a machine up, use @brain-db/cli \u2014 this is the server it configures.",
   "license": "Apache-2.0",
   "author": "Niraj Georgian",
   "type": "module",
@@ -34,14 +34,15 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "start": "node dist/index.js",
     "dev": "tsc -p tsconfig.json --watch",
+    "format": "biome format --write .",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "format": "biome format --write .",
+    "prepublishOnly": "npm run build",
+    "pretest": "npm run build",
+    "start": "node dist/index.js",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "keywords": [
     "brain",

@@ -13,8 +13,16 @@
  * was invoked: a test that imported the module and called `main()` would have
  * passed the whole time it was broken.
  *
- * It runs against `dist/`, the artifact that ships, and skips when there is
- * none.
+ * It runs against `dist/`, the artifact that ships — not against `src/`,
+ * because the bug is in how the PROCESS is invoked and importing the module
+ * would prove nothing.
+ *
+ * It FAILS rather than skips when there is no build. `describe.skipIf` was
+ * the obvious reading of "this needs dist", and it made the guard for the
+ * worst bug this package has had conditional on somebody having run `tsc`
+ * first — a green run on a machine with no `dist/` looked identical to a green
+ * run that had actually checked. `pretest` builds, so an absent `dist/` now
+ * means the build failed, which is worth failing for.
  */
 
 import { spawnSync } from "node:child_process";
@@ -48,7 +56,15 @@ function run(invokedAs: string): { stdout: string; stderr: string } {
   return { stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-describe.skipIf(!built)("entrypoint detection", () => {
+describe("entrypoint detection", () => {
+  it("has something to test", () => {
+    expect(
+      built,
+      `no build at ${entry} — run \`npm run build\`. This test asserts how the ` +
+        "shipped artifact behaves when invoked, so without one it proves nothing.",
+    ).toBe(true);
+  });
+
   it("starts when run directly", () => {
     expect(run(entry).stderr).toMatch(/brain-mcp on stdio/);
   });
