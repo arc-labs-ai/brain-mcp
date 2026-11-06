@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/arc-labs-ai/brain-mcp/compare/v0.3.2...v0.4.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* `brain-mcp init` is removed, along with the bundled Claude Code plugin and its marketplace manifest. They live in @brain-db/cli and the brain-kit repo now. There is no alias and no deprecation path — the published 0.3.2 never started at all, so nothing was depending on either.
+
+### Fixes
+
+* **build:** keep the bin executable when dist is regenerated ([29c9d0c](https://github.com/arc-labs-ai/brain-mcp/commit/29c9d0cabc2e3f6bdbd39bd033f58161999475b8))
+* **cli:** start when invoked through the bin symlink npm installs ([d395238](https://github.com/arc-labs-ai/brain-mcp/commit/d395238c3af7cb53d6a6e8553126b9c174a7491b))
+* **init:** do not write a Claude Code server that shadows the plugin's ([70e0033](https://github.com/arc-labs-ai/brain-mcp/commit/70e0033dbc1abd084bc1c23f3e50846ea362375f))
+
+
+### Features
+
+* annotate every tool and disambiguate the ones that read alike ([cfdeabc](https://github.com/arc-labs-ai/brain-mcp/commit/cfdeabce53c934de3e952d0ea511820e480ab80a))
+* **init:** one command to connect every MCP client on this machine ([4285c44](https://github.com/arc-labs-ai/brain-mcp/commit/4285c449cf5c6aa3c205fea37e66736ef1a70b5f))
+* move setup out of the server into @brain-db/cli ([bc3cd2b](https://github.com/arc-labs-ai/brain-mcp/commit/bc3cd2bdd5a2c3246324a83ece6b776e090d0fb7))
+
 ## [0.3.2](https://github.com/arc-labs-ai/brain-mcp/compare/v0.3.1...v0.3.2) (2026-11-03)
 
 
