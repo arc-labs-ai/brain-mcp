@@ -35,6 +35,38 @@ on:
     tags:
       - "v*"
 
+  # Called by `release-please.yml` IN THE SAME RUN.
+  #
+  # WHY. Merging the Release PR creates the tag, and the trigger above fires on
+  # it — but only while `RELEASE_PLEASE_TOKEN` is set. Events raised with the
+  # default `GITHUB_TOKEN` do not start workflow runs (GitHub's recursion
+  # guard), and the `secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN`
+  # fallback in that workflow is SILENT — so the day that PAT expires or is
+  # rotated away, tags keep being cut and nothing is ever published again, with
+  # no failure anywhere to say so. A sibling repo lost its first release to
+  # exactly this.
+  #
+  # A job in the same run is not a new event, so the hand-off works with or
+  # without the token, and the token stops being load-bearing.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag just created by release-please."
+        required: true
+        type: string
+
+  # For a tag that was cut but never published. `ref: inputs.tag || github.ref`
+  # means dispatching from `main` runs the CURRENT workflow file against the
+  # TAG's source, so a fix here can publish a tag made before the fix existed.
+  # Force-moving the tag would also work and is worse: it rewrites history a
+  # registry may already reference.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish, e.g. "v0.4.0"'
+        required: true
+        type: string
+
 # No repo-wide write; the job opts into `id-token: write` for OIDC.
 permissions:
   contents: read
@@ -49,6 +81,8 @@ jobs:
       id-token: write # OIDC → npm trusted publishing + provenance
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v7
         with:
@@ -63,20 +97,51 @@ jobs:
 
       - name: Verify tag matches package version
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          RAW="${{ inputs.tag || github.ref_name }}"
+          TAG="${RAW#v}"
           VER="$(node -p "require('./package.json').version")"
           echo "tag=$TAG package=$VER"
           test "$TAG" = "$VER" || { echo "::error::tag $TAG != package version $VER"; exit 1; }
 
-      - run: npm ci
+      # Is this version already on npm?
+      #
+      # With the PAT set, a tag push AND the release-please hand-off both fire
+      # for the same release. Without this, the second reaches `npm publish`,
+      # npm refuses a version that exists, and a release that actually shipped
+      # ends red — which teaches people to ignore a red release workflow, and
+      # that is worse than the duplicate.
+      #
+      # An already-published version is the state we wanted, so it is success.
+      # `npm view` exits non-zero when the version does not exist, which is the
+      # ordinary case, hence `|| true`.
+      - name: Skip if this version is already published
+        id: published
+        run: |
+          set -uo pipefail
+          VER="$(node -p "require('./package.json').version")"
+          NAME="$(node -p "require('./package.json').name")"
+          FOUND="$(npm view "$NAME@$VER" version 2>/dev/null || true)"
+          if [ "$FOUND" = "$VER" ]; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME@$VER is already on npm - nothing to publish."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "$NAME@$VER is not on npm yet - publishing."
+          fi
+
+      - if: steps.published.outputs.already != 'true'
+        run: npm ci
 
       - name: Test
+        if: steps.published.outputs.already != 'true'
         run: npm test
 
       - name: Build
+        if: steps.published.outputs.already != 'true'
         run: npm run build
 
       # OIDC trusted publishing: no NODE_AUTH_TOKEN. npm detects the trusted
       # publisher and attaches provenance automatically.
       - name: Publish
+        if: steps.published.outputs.already != 'true'
         run: npm publish
