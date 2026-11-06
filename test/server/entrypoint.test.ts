@@ -60,8 +60,7 @@ describe("entrypoint detection", () => {
   it("has something to test", () => {
     expect(
       built,
-      `no build at ${entry} — run \`npm run build\`. This test asserts how the ` +
-        "shipped artifact behaves when invoked, so without one it proves nothing.",
+      `no build at ${entry} — run \`npm run build\`. This test asserts how the shipped artifact behaves when invoked, so without one it proves nothing.`,
     ).toBe(true);
   });
 
