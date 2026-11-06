@@ -76,6 +76,17 @@ jobs:
     name: Publish → npm
     runs-on: ubuntu-26.04
     environment: release
+    # One publish of a given version at a time. Both entrypoints — the tag
+    # push and the release-please hand-off — fire for the same release when
+    # `RELEASE_PLEASE_TOKEN` is set, and without this they run side by side and
+    # race. Keyed on the ref rather than the workflow so the two DIFFERENT
+    # workflows calling this one still share the queue.
+    #
+    # `cancel-in-progress: false`, emphatically: cancelling a publish mid-flight
+    # is how a half-uploaded version happens.
+    concurrency:
+      group: publish-npm-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write # OIDC → npm trusted publishing + provenance
@@ -142,6 +153,34 @@ jobs:
 
       # OIDC trusted publishing: no NODE_AUTH_TOKEN. npm detects the trusted
       # publisher and attaches provenance automatically.
+      # Publish, and treat "someone else just published it" as success.
+      #
+      # The pre-check above closes the SEQUENTIAL duplicate: a second run that
+      # starts after the first finished sees the version and skips. It does
+      # nothing for a CONCURRENT one, and concurrent is what actually happened
+      # on 0.1.1 — the tag push and the release-please hand-off started
+      # together, both checked before either had published, both proceeded,
+      # and the loser died on npm refusing an existing version. A release that
+      # shipped correctly still showed a red run.
+      #
+      # The `concurrency` group on this job now serialises the two, so the
+      # second one's pre-check runs after the first has finished and skips
+      # properly. This block is the belt to that braces: if the two ever do
+      # overlap again, the question asked is still "is the version on npm",
+      # not "did my process win the race".
       - name: Publish
         if: steps.published.outputs.already != 'true'
-        run: npm publish
+        run: |
+          set -uo pipefail
+          if npm publish; then
+            exit 0
+          fi
+          VER="$(node -p "require('./package.json').version")"
+          NAME="$(node -p "require('./package.json').name")"
+          FOUND="$(npm view "$NAME@$VER" version 2>/dev/null || true)"
+          if [ "$FOUND" = "$VER" ]; then
+            echo "::notice::$NAME@$VER was published by another run while this one was working - treating as success."
+            exit 0
+          fi
+          echo "::error::npm publish failed and $NAME@$VER is still not on the registry."
+          exit 1
