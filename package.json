@@ -33,7 +33,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').chmodSync('dist/index.js', 0o755)\"",
     "dev": "tsc -p tsconfig.json --watch",
     "format": "biome format --write .",
     "lint": "biome check .",
