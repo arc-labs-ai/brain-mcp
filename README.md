@@ -19,67 +19,59 @@ anything this server decides. See [Identity](#identity).
 
 ## Quick start
 
-Get a key from the dashboard under **API Keys**, then:
+**Do not install this package directly.** It is the server; the thing that sets
+a machine up is `@brain-db/cli`:
 
 ```bash
-npx @brain-db/mcp init
+npx @brain-db/cli
 ```
 
-It asks for the key, **checks it against the backend before writing anything**,
-then finds the MCP clients on this machine and configures each one:
+That opens your browser, asks you to confirm a code shown in your terminal, and
+configures every MCP client it finds — including this server, the Claude Code
+plugin, and the skills that tell an agent when memory is worth writing. No key
+is copied by hand.
 
 ```
-  brain-mcp init
-  backend   https://api.stg.arc-labs.ai
-  key       valid — acme / research-agent
+  brain connect
+  Give the agents on this machine a memory they keep between sessions.
 
-  ✓ Claude Code      via `claude mcp add`
-  ✓ Codex CLI        via `codex mcp add`
-  ✓ Cursor           /Users/you/.cursor/mcp.json
+  backend    https://api.stg.arc-labs.ai
+  machine    your-laptop
+  clients    Claude Code, Codex CLI, Claude Desktop
 
-  Restart the client, then try:
-    "remember that I prefer pnpm over npm"
-    "what do you remember about my tooling?"
+  ┌──────────────────────────────────────────┐
+  │   Confirm this code in your browser      │
+  │                                          │
+  │                WXYZ-2345                 │
+  │                                          │
+  └──────────────────────────────────────────┘
+
+  configured
+    ✓ Claude Code       plugin brain installed, key in your keychain
+    ✓ Codex CLI         via `codex mcp add`
+    ✓ Claude Desktop    …/claude_desktop_config.json
+    ✓ skill: brain-memory  ~/.agents/skills/brain-memory
 ```
 
-Nothing is written until the key verifies, because a half-configured machine
-fails later and somewhere else — inside an agent turn, as a broken tool rather
-than a wrong key.
+### Why this package has no installer any more
 
-| Flag | Meaning |
-|---|---|
-| `--key <k>` | The key, instead of being asked. Also read from `BRAIN_MCP_API_KEY` |
-| `--backend <url>` | A different Brain, e.g. `http://localhost:8080` for a local brain-edge |
-| `--client <id>` | Only this client: `claude-code`, `codex`, `cursor`, `claude-desktop`, `windsurf`. Repeatable, and it configures the client whether or not it was detected |
-| `--name <n>` | Register under a different server name. Default `brain` |
-| `--dry-run` | Do every check and every merge, write nothing |
-| `--yes` | Never prompt; fail instead. For CI |
+It had one — `brain-mcp init` — and it is gone rather than deprecated, because
+setting a machine up and serving an agent are different jobs:
 
-`init` preserves the MCP servers already in a config, backs up each file it
-edits to `<file>.brain-backup`, and refuses a file it cannot parse rather than
-replacing it. For Claude Code and Codex it calls their own `mcp add`, which
-owns the file format — that is also why Codex's TOML works without this
-package knowing any TOML.
+- the installer is **one-shot and interactive**: it opens a browser, waits on a
+  human, shells out to other CLIs, and can change freely because every run is
+  somebody's first;
+- this is **long-lived and on the hot path**: an agent starts it on every cold
+  start, and it should do nothing but speak the protocol.
 
-### Claude Code: install as a plugin
+Fusing them also made this package the wrong thing to recommend. Nobody wants
+an MCP server — they want their agent to remember things — and a tool surface
+with no skill beside it is a tool surface an agent picks wrongly from. The CLI
+ships both. This ships the server.
 
-A plugin is one command, and it keeps the key in your OS keychain rather than
-in a config file:
+## Configuring it by hand
 
-```
-/plugin install brain --marketplace arc-labs-ai/brain-mcp
-```
-
-Claude Code prompts for your Brain API key on install, stores it as a
-`sensitive` option, and substitutes it into the server's environment. The
-plugin also carries a skill that tells the agent when memory is worth writing
-and what never belongs in it.
-
-### Connect a client by hand
-
-brain-mcp speaks MCP two ways. Pick the one your client uses.
-
-**stdio** — the client starts and owns the process:
+If you would rather not run an installer, this is what it writes:
 
 ```json
 {
@@ -88,6 +80,7 @@ brain-mcp speaks MCP two ways. Pick the one your client uses.
       "command": "npx",
       "args": ["-y", "@brain-db/mcp", "--stdio"],
       "env": {
+        "BRAIN_MCP_BACKEND_URL": "https://api.stg.arc-labs.ai",
         "BRAIN_MCP_API_KEY": "brain_…"
       }
     }
@@ -95,43 +88,7 @@ brain-mcp speaks MCP two ways. Pick the one your client uses.
 }
 ```
 
-`BRAIN_MCP_BACKEND_URL` is optional; set it to reach a brain-edge at
-`http://127.0.0.1:8080` or any other deployment.
-
-**Remote HTTP** — one deployment, many users. Each client sends its own key:
-
-```bash
-brain-mcp            # listens on :3333, MCP endpoint at POST /mcp
-```
-
-```bash
-claude mcp add --transport http brain https://mcp.example.com/mcp \
-  --header "Authorization: Bearer brain_…"
-```
-
-```json
-{
-  "mcpServers": {
-    "brain": {
-      "url": "https://mcp.example.com/mcp",
-      "headers": { "Authorization": "Bearer brain_…" }
-    }
-  }
-}
-```
-
-A request without a bearer is refused with `401`. The server has no credential
-to fall back to, which is what makes it safe to expose directly rather than
-behind a shared-secret gate — there is no ambient authority to reach.
-
-`--stdio` (or `BRAIN_MCP_STDIO=1`) selects stdio; otherwise an HTTP listener
-starts. On stdio the client holds the credential in its own config and the
-server writes only protocol frames to stdout — all logs go to stderr, which
-clients show as server logs.
-
-The rule, in one line: **the credential comes from the transport.** On stdio
-the client owns the process, so the key comes from `BRAIN_MCP_API_KEY`. Over
-HTTP every request brings its own, and the environment is not consulted at all.
+Get the key from the dashboard under **API Keys**.
 
 ## Run from source
 

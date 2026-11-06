@@ -27,7 +27,6 @@ import express, {
 } from "express";
 import { BrainBackend } from "./backend/index.js";
 import { type Config, ConfigError, loadConfig } from "./config/index.js";
-import { parseInitArgs, runInit } from "./install/index.js";
 import { buildServer } from "./server/index.js";
 
 const JSONRPC_METHOD_NOT_ALLOWED = -32000;
@@ -162,33 +161,28 @@ export function buildApp(cfg: Config): Express {
   return app;
 }
 
+/**
+ * This package is a SERVER, not an installer.
+ *
+ * It used to carry an `init` subcommand that configured every MCP client on a
+ * machine, plus a Claude Code plugin and a skill. All of that moved to
+ * `@brain-db/cli`, and none of it is kept here as an alias.
+ *
+ * The split is not tidying. Setting a machine up and serving an agent's
+ * requests are different jobs with different shapes:
+ *
+ * - The installer is **one-shot and interactive**: it opens a browser, waits
+ *   on a human, shells out to other CLIs, and can churn freely because every
+ *   run is somebody's first.
+ * - This is **long-lived and on the hot path**: an agent starts it on every
+ *   cold start and it must do nothing but speak the protocol.
+ *
+ * Fusing them also made the package the wrong thing to recommend. Nobody
+ * wants an MCP server; they want their agent to remember things — and a tool
+ * surface with no skill beside it is a tool surface an agent picks wrongly
+ * from. The installer ships both. This ships the server.
+ */
 async function main(): Promise<void> {
-  /*
-   * `init` is checked before anything else reads the environment.
-   *
-   * It is the one subcommand that runs when the machine is NOT yet configured
-   * — that is its entire job — so it must not go through `loadConfig`, which
-   * exists to refuse exactly that state. Routing it first also keeps the
-   * transport selection below unchanged: `init` is not a third transport.
-   */
-  const argv = process.argv.slice(2);
-  if (argv[0] === "init") {
-    let opts: ReturnType<typeof parseInitArgs>;
-    try {
-      opts = parseInitArgs(argv.slice(1));
-    } catch (err) {
-      console.error(
-        `brain-mcp init: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      console.error(
-        "usage: brain-mcp init [--key <k>] [--backend <url>] " +
-          "[--client <id>]… [--name <n>] [--dry-run] [--yes]",
-      );
-      process.exit(2);
-    }
-    process.exit(await runInit(opts));
-  }
-
   const stdio = wantsStdio();
   let cfg: Config;
   try {

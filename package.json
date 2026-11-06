@@ -1,7 +1,7 @@
 {
   "name": "@brain-db/mcp",
   "version": "0.3.2",
-  "description": "Managed MCP server for the Brain memory database. Exposes Brain's tenant surface — memory, reasoning, typed entities, graph, schema, identity — as 49 MCP tools over remote Streamable HTTP, in front of the Brain gateway (hosted) or brain-edge (self-host).",
+  "description": "MCP server for the Brain memory database: memory, reasoning, typed entities, graph, schema and identity as 49 MCP tools, over stdio or Streamable HTTP. To set a machine up, use @brain-db/cli — this is the server it configures.",
   "license": "Apache-2.0",
   "author": "Niraj Georgian",
   "type": "module",
