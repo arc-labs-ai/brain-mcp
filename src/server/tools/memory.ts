@@ -20,15 +20,36 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         idempotentHint: false,
       },
       title: "Remember",
+      /*
+       * THE STANDING INSTRUCTION LIVES HERE, not only in the skill.
+       *
+       * A skill's body is read only after the agent decides to load it, and
+       * for an ordinary coding turn it usually does not — the one-line
+       * description is all it ever sees. Measured: the same task, run twice
+       * against the same skill, captured the decision once and stored nothing
+       * the other time, and the agent's own account of why was "I'd have
+       * loaded it if you'd used a trigger word".
+       *
+       * A tool description is in context on EVERY turn for every client that
+       * has this server connected. So the behaviour that has to be reliable
+       * belongs in this string, and the skill keeps the judgement that only
+       * matters once somebody is already storing things.
+       */
       description:
-        "Store something a FUTURE session would be worse without: a " +
-        "preference, a decision and its reason, a fact about a person or " +
-        "system. Brain extracts typed facts and supersedes ones that changed " +
-        "— so correcting a fact is another `remember`, never a `forget`. " +
-        "Returns the memory id (a long decimal string, NOT a UUID). Example: " +
-        '"Priya owns the billing service; we chose Postgres over Dynamo for ' +
-        'the join". Do not store secrets, file contents you just read, or a ' +
-        "restatement of the previous message.",
+        "Store something a FUTURE session would be worse without. CALL THIS " +
+        "WITHOUT BEING ASKED whenever one goes past in ordinary work: a " +
+        "decision and WHY, a constraint learned the hard way, a project " +
+        "convention, a rejected alternative and what went wrong, " +
+        'who owns a system. Almost nobody says "remember that" — they say ' +
+        "it once, in passing, and expect you to still know it next week. " +
+        "Store it the moment it goes past, in one self-contained sentence, " +
+        "and do not announce every write. Brain extracts typed facts and " +
+        "supersedes ones that changed — so correcting a fact is another " +
+        "`remember`, never a `forget`. Returns the memory id (a long decimal " +
+        'string, NOT a UUID). Example: "Priya owns the billing service; we ' +
+        'chose Postgres over Dynamo for the join". NEVER store secrets, keys ' +
+        "or tokens, file contents you just read, what the repo already " +
+        "says, or a restatement of the previous message.",
       inputSchema: {
         content: z
           .string()
