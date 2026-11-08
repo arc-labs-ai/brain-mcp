@@ -59,7 +59,8 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
         idempotentHint: true,
       },
       title: "List sessions",
-      description: "The sessions in this workspace, newest activity first.",
+      description:
+        "The sessions in this SPACE, newest activity first. A session groups memories inside a space; it is not an isolation boundary, and a recall spans every session unless it filters. Note that everything `remember` writes lands in session 0, the default — so these are the sessions a client created explicitly, not a record of your own writes.",
       inputSchema: {
         limit: z.number().int().min(1).max(200).optional().describe("Page size."),
       },

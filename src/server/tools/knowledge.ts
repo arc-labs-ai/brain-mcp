@@ -53,6 +53,79 @@ const statementObject = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/**
+ * A unix-nanosecond instant, in a form an agent can actually produce.
+ *
+ * ## The bug this replaces
+ *
+ * These fields were `z.number().int()`. In zod 4 that means a SAFE integer, so
+ * the emitted JSON Schema carried `maximum: 9007199254740991` and the
+ * validator enforced it — and 2^53-1 nanoseconds past the epoch is **15 April
+ * 1970**. Every real date is 100-200x over the cap, so every bi-temporal field
+ * in this surface rejected every value it exists to receive:
+ *
+ *     Too big: expected int to be <=9007199254740991 at valid_from_unix_nanos
+ *
+ * The descriptions beside them cheerfully explained when to use them, which
+ * made the failure more likely rather than less.
+ *
+ * ## What it accepts now
+ *
+ * An ISO-8601 instant FIRST, because that is the form a model gets right every
+ * time; a bare number or a digit string are taken as nanoseconds for callers
+ * that already hold one.
+ *
+ * ## Why a digit string is allowed at all
+ *
+ * A JSON number is a double. Nanosecond values above 2^53 are only exactly
+ * representable when they have enough trailing zero bits — a whole second or
+ * millisecond does, an arbitrary nanosecond does not. A string arrives
+ * unrounded, so the check below can tell the two apart and REFUSE the lossy
+ * one rather than storing a timestamp quietly off by a few hundred nanos.
+ * (The wire field is a serde `u64` and takes a number, so the value is still
+ * sent as one; the string only buys an honest precision check.)
+ */
+const unixNanos = z.union([z.number(), z.string()]).transform((raw, ctx): number => {
+  if (typeof raw === "number") {
+    if (!Number.isInteger(raw) || raw < 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "must be a non-negative whole number of nanoseconds",
+      });
+      return z.NEVER;
+    }
+    return raw;
+  }
+  const text = raw.trim();
+  if (/^\d+$/.test(text)) {
+    const value = Number(text);
+    // The round trip is the test: a value a double cannot hold exactly comes
+    // back as different digits.
+    if (String(value) !== text && BigInt(text) !== BigInt(value)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${text} cannot be represented exactly as a JSON number, so sending it would store a different instant. Round it to whole milliseconds (…000000) or pass an ISO-8601 time instead.`,
+      });
+      return z.NEVER;
+    }
+    return value;
+  }
+  const parsed = Date.parse(text);
+  if (Number.isNaN(parsed)) {
+    ctx.addIssue({
+      code: "custom",
+      message:
+        "expected an ISO-8601 instant like 2026-03-01T00:00:00Z, or a whole " +
+        "number of unix nanoseconds",
+    });
+    return z.NEVER;
+  }
+  // Milliseconds to nanoseconds. Exact: the factor is 10^6, and the
+  // product of any ms value in a plausible range stays inside a double's
+  // exact-integer reach once its trailing zero bits are counted.
+  return parsed * 1_000_000;
+});
+
 /** The fields a claim is made of. Shared by create and supersede, because the
  *  supersede body is a whole replacement statement rather than a patch. */
 const statementFields = {
@@ -70,24 +143,21 @@ const statementFields = {
     ),
   object: statementObject.describe("What the claim is about."),
   confidence: z.number().min(0).max(1).optional().describe("0..1. Defaults to certain."),
-  event_at_unix_nanos: z
-    .number()
-    .int()
-    .nonnegative()
+  event_at_unix_nanos: unixNanos
     .optional()
-    .describe("When the thing HAPPENED. Distinct from when the claim is held true."),
-  valid_from_unix_nanos: z
-    .number()
-    .int()
-    .nonnegative()
+    .describe(
+      "When the thing HAPPENED — distinct from when the claim is held true. " +
+        "ISO-8601 (`2026-03-01T00:00:00Z`) or unix nanoseconds.",
+    ),
+  valid_from_unix_nanos: unixNanos
     .optional()
-    .describe("When the claim starts being true. Omitted = now."),
-  valid_to_unix_nanos: z
-    .number()
-    .int()
-    .nonnegative()
+    .describe(
+      "When the claim starts being true. ISO-8601 or unix nanoseconds. " +
+        "Omitted = now.",
+    ),
+  valid_to_unix_nanos: unixNanos
     .optional()
-    .describe("When it stops. Omitted = still valid."),
+    .describe("When it stops. ISO-8601 or unix nanoseconds. Omitted = still valid."),
   session_id: z
     .number()
     .int()
@@ -113,11 +183,48 @@ const relationFields = {
   from_entity: z.string().min(1).describe("Source entity id (UUID)."),
   to_entity: z.string().min(1).describe("Target entity id (UUID)."),
   confidence: z.number().min(0).max(1).optional().describe("0..1. Defaults to certain."),
-  valid_from_unix_nanos: z.number().int().nonnegative().optional(),
-  valid_to_unix_nanos: z.number().int().nonnegative().optional(),
-  session_id: z.number().int().nonnegative().optional(),
+  /*
+   * THE SAME THREE CONCEPTS THE STATEMENT FIELDS ABOVE ALREADY EXPLAIN, and
+   * for a while these three carried no description at all — the relation path
+   * was added later and did not inherit that care. An undescribed field is
+   * not a field an agent leaves alone; it is one it guesses at, and the
+   * guesses here are all silent. A validity window in the wrong epoch stores
+   * cleanly and makes the edge invisible to every time-bounded query.
+   */
+  valid_from_unix_nanos: unixNanos
+    .optional()
+    .describe(
+      "When the edge starts being true IN THE WORLD — object time, not when " +
+        "you are recording it. ISO-8601 (`2026-03-01T00:00:00Z`) or unix " +
+        "nanoseconds. Omitted = now.",
+    ),
+  valid_to_unix_nanos: unixNanos
+    .optional()
+    .describe(
+      "When it stops being true in the world. ISO-8601 or unix nanoseconds. " +
+        "Omitted = still valid. Set this to end an edge that is simply over; " +
+        "use supersede_relation when it was REPLACED by a different one.",
+    ),
+  session_id: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe(
+      "Attribute this edge to a session created with create_session. " +
+        "Grouping only — a session is NOT an isolation boundary, and omitting " +
+        "it files the edge under session 0, the default. Leave it unset unless " +
+        "a caller asked for the write to be attributed.",
+    ),
   evidence: z.array(z.string()).optional().describe("Memory ids this edge rests on."),
-  properties: z.string().optional().describe("Opaque property blob, lowercase hex."),
+  properties: z
+    .string()
+    .optional()
+    .describe(
+      "Opaque bytes the server stores and never interprets, hex-encoded " +
+        "lowercase — NOT a JSON object. There is nothing useful to put here " +
+        "unless you were handed the bytes; omit it.",
+    ),
 };
 
 /**
@@ -431,7 +538,7 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       },
       title: "Delete relation",
       description:
-        "Tombstone a typed edge. Traversals stop crossing it. If the edge is " +
+        "Tombstone a typed edge BETWEEN ENTITIES. Traversals stop crossing it. If the edge is merely out of date, supersede_relation keeps the history; to remove an untyped edge between two MEMORIES, use `unlink`." +
         "merely out of date, supersede_relation keeps the history.",
       inputSchema: {
         relation_id: z.string().min(1).describe("The edge to tombstone."),
