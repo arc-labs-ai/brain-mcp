@@ -17,6 +17,16 @@ name: Release Please
 # This workflow deliberately does NOT publish and holds no registry
 # credentials. `release.yml` does that over OIDC; keeping a third-party action
 # out of the job that holds the publish identity is the point of the split.
+#
+# Publishing is reached ONLY by the tag, never from inside this run. npm's
+# trusted publisher is registered against `release.yml` as the entry workflow,
+# and a reusable call made from here would carry THIS file as the run's entry
+# — npm reads that as an untrusted publish, answers `404 PUT`, and the release
+# goes out from the tag path anyway, so the second attempt can only ever fail.
+#
+# That makes `RELEASE_PLEASE_TOKEN` load-bearing. A tag created with the
+# default `GITHUB_TOKEN` does not trigger another workflow, so the token below
+# must be a real credential or the tag lands and nothing publishes.
 
 on:
   push:
@@ -41,9 +51,6 @@ jobs:
       # Create the tag + GitHub Release on merge, and open/update the PR.
       contents: write
       pull-requests: write
-    outputs:
-      released: ${{ steps.release.outputs.release_created }}
-      tag: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
@@ -51,26 +58,3 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-  # Publish the tag this run just created, without depending on which side of
-  # the silent `RELEASE_PLEASE_TOKEN || GITHUB_TOKEN` fallback above we landed
-  # on. Calling `release.yml` keeps it inside THIS run, where the recursion
-  # guard does not apply.
-  #
-  # The split the header describes is preserved: it is a split between JOBS,
-  # not between files. The third-party release-please action still runs in a
-  # job with no `id-token: write`, and the job holding the publish identity
-  # still runs no third-party action.
-  publish:
-    needs: release-please
-    if: needs.release-please.outputs.released == 'true'
-    # Granted on the CALLING job. A reusable workflow cannot hold more than its
-    # caller, and this file's top-level `contents: read` would otherwise cap
-    # `id-token: write` away — npm would then see an anonymous publish and
-    # answer 404, which reads as "no permission" rather than "no OIDC token".
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/release.yml
-    with:
-      tag: ${{ needs.release-please.outputs.tag }}

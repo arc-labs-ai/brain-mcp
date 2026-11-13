@@ -286,6 +286,34 @@ describe("brain-mcp server", () => {
     ).toBe(tools.length);
   });
 
+  /**
+   * The README opens its tool section with a count, and that sentence is the
+   * first thing an operator reads about the surface. It said "49 tools" while
+   * 58 were registered — stale since the commit that widened the surface, and
+   * published that way.
+   *
+   * The sibling check below keeps package.json's count right, and the table
+   * check above keeps the rows right. Neither reads this sentence, so it
+   * drifted on its own. This closes the last place the number is written by
+   * hand and nothing compares it to the server.
+   */
+  it("states the registered tool count in the README", async () => {
+    const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    await client.close();
+
+    const claimed = /(\d+) tools over the tenant surface/.exec(readme);
+    expect(
+      claimed,
+      "the README must state an 'N tools over the tenant surface' count",
+    ).not.toBeNull();
+    expect(
+      Number((claimed as RegExpExecArray)[1]),
+      "the README disagrees with the registered tool count",
+    ).toBe(tools.length);
+  });
+
   it("surfaces a backend failure as an isError result, not a throw", async () => {
     // backendUrl points at a closed port, so remember() fails fast — the tool
     // must return isError content rather than crashing the server.

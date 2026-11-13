@@ -148,7 +148,7 @@ key, and run as a non-root user.
 
 ## Tools
 
-49 tools over the tenant surface. `?` marks an optional argument. No tool takes
+58 tools over the tenant surface. `?` marks an optional argument. No tool takes
 a customer or tenant id: the identity is the caller's credential, resolved
 server-side, so there is nothing for an agent to set — or to get wrong.
 
@@ -262,7 +262,7 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 The line is not "is it a write" — entity merges, statement supersessions and
 schema drops are all writes and all tools, because each is recoverable, scoped
 to one record, or both. What matters is whether a confused or steered agent
-could leak a secret or lose something unrecoverably. Four routes that once had
+could leak a secret or lose something unrecoverably. Five routes that once had
 no tool now have one, because each found a shape that keeps its hazard out of
 reach:
 
@@ -286,19 +286,17 @@ reach:
   represent. `subscribe_events` drains a **bounded** slice — to a deadline and
   an event count — and returns the resume LSN, so following the feed is a loop
   the caller drives rather than a tool that hangs.
+- **`DELETE /v1/spaces`** takes no path parameter, because every space verb
+  acts on the caller's *own* space — so it is "erase this workspace" from a
+  single call, with no id in the request that could fail to match and nothing
+  that undoes it. `delete_space` supplies the missing id: `confirm_space_id`
+  is **required with no default** and is checked against the space the
+  credential actually resolves to, so a caller that is in a different
+  workspace than it believes gets a refusal and loses nothing. Read the id
+  from `whoami` immediately before the call. It is the only tool that reads
+  before it writes, and the extra `whoami` is the price of that check.
 
-**Every route has a tool.** The one that needed care is `DELETE /v1/spaces`:
-it takes no path parameter, because every space verb acts on the caller's
-*own* space. So it is "erase this workspace" from a single call, with no id in
-the request that could fail to match and nothing that undoes it.
-
-`delete_space` supplies the missing id. `confirm_space_id` is required, has no
-default, and is checked against the space the credential actually resolves to
-— read it from `whoami` immediately before the call and pass it through
-unchanged. A caller that is in a different workspace than it believes gets a
-refusal and loses nothing, which is the failure this guard exists for. It is
-the only tool that reads before it writes, and the extra `whoami` is the price
-of that check.
+**Every route on the tenant surface now has a tool.**
 
 ## Identity
 
