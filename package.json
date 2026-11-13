@@ -1,6 +1,6 @@
 {
   "name": "@brain-db/mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "MCP server for the Brain memory database: memory, reasoning, typed entities, graph, schema and identity as 58 MCP tools, over stdio or Streamable HTTP. To set a machine up, use @brain-db/cli — this is the server it configures.",
   "license": "Apache-2.0",
   "author": "Niraj Georgian",

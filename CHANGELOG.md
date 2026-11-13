@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/arc-labs-ai/brain-mcp/compare/v0.4.1...v0.4.2) (2026-11-13)
+
+
+### Fixes
+
+* **release:** publish from the tag only, and state the real tool count ([#18](https://github.com/arc-labs-ai/brain-mcp/issues/18)) ([bb210af](https://github.com/arc-labs-ai/brain-mcp/commit/bb210af82bafe20a7a5d97b81f54988ff43daa7d))
+
 ## [0.4.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.4.0...v0.4.1) (2026-11-13)
 
 
