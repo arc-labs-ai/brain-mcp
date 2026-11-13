@@ -15,6 +15,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
 import { fail, ok } from "../result.js";
+import { cursor, includeTombstoned, unixNanos } from "../schema.js";
 
 /**
  * A statement's object, in the tagged shape the contract uses on both sides.
@@ -52,79 +53,6 @@ const statementObject = z.discriminatedUnion("kind", [
     ]),
   }),
 ]);
-
-/**
- * A unix-nanosecond instant, in a form an agent can actually produce.
- *
- * ## The bug this replaces
- *
- * These fields were `z.number().int()`. In zod 4 that means a SAFE integer, so
- * the emitted JSON Schema carried `maximum: 9007199254740991` and the
- * validator enforced it — and 2^53-1 nanoseconds past the epoch is **15 April
- * 1970**. Every real date is 100-200x over the cap, so every bi-temporal field
- * in this surface rejected every value it exists to receive:
- *
- *     Too big: expected int to be <=9007199254740991 at valid_from_unix_nanos
- *
- * The descriptions beside them cheerfully explained when to use them, which
- * made the failure more likely rather than less.
- *
- * ## What it accepts now
- *
- * An ISO-8601 instant FIRST, because that is the form a model gets right every
- * time; a bare number or a digit string are taken as nanoseconds for callers
- * that already hold one.
- *
- * ## Why a digit string is allowed at all
- *
- * A JSON number is a double. Nanosecond values above 2^53 are only exactly
- * representable when they have enough trailing zero bits — a whole second or
- * millisecond does, an arbitrary nanosecond does not. A string arrives
- * unrounded, so the check below can tell the two apart and REFUSE the lossy
- * one rather than storing a timestamp quietly off by a few hundred nanos.
- * (The wire field is a serde `u64` and takes a number, so the value is still
- * sent as one; the string only buys an honest precision check.)
- */
-const unixNanos = z.union([z.number(), z.string()]).transform((raw, ctx): number => {
-  if (typeof raw === "number") {
-    if (!Number.isInteger(raw) || raw < 0) {
-      ctx.addIssue({
-        code: "custom",
-        message: "must be a non-negative whole number of nanoseconds",
-      });
-      return z.NEVER;
-    }
-    return raw;
-  }
-  const text = raw.trim();
-  if (/^\d+$/.test(text)) {
-    const value = Number(text);
-    // The round trip is the test: a value a double cannot hold exactly comes
-    // back as different digits.
-    if (String(value) !== text && BigInt(text) !== BigInt(value)) {
-      ctx.addIssue({
-        code: "custom",
-        message: `${text} cannot be represented exactly as a JSON number, so sending it would store a different instant. Round it to whole milliseconds (…000000) or pass an ISO-8601 time instead.`,
-      });
-      return z.NEVER;
-    }
-    return value;
-  }
-  const parsed = Date.parse(text);
-  if (Number.isNaN(parsed)) {
-    ctx.addIssue({
-      code: "custom",
-      message:
-        "expected an ISO-8601 instant like 2026-03-01T00:00:00Z, or a whole " +
-        "number of unix nanoseconds",
-    });
-    return z.NEVER;
-  }
-  // Milliseconds to nanoseconds. Exact: the factor is 10^6, and the
-  // product of any ms value in a plausible range stays inside a double's
-  // exact-integer reach once its trailing zero bits are counted.
-  return parsed * 1_000_000;
-});
 
 /** The fields a claim is made of. Shared by create and supersede, because the
  *  supersede body is a whole replacement statement rather than a patch. */
@@ -270,13 +198,70 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
         "workspace's memories. Use to audit what Brain believes, not to answer " +
         "a question.",
       inputSchema: {
-        limit: z.number().int().min(1).max(200).optional().describe("Page size."),
-        cursor: z.string().optional().describe("Opaque cursor from a previous page."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Page size, 1-1000."),
+        cursor: cursor.optional(),
+        subject: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Subject entity id (UUID) — every claim about one thing. Resolve " +
+              "the name with `resolve_entity` first.",
+          ),
+        predicate: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Only claims using this predicate, e.g. `brain:reports_to`."),
+        kind: z
+          .enum(["fact", "preference", "event", "attribute", "relation", "directive"])
+          .optional()
+          .describe("Only claims of this kind."),
+        min_confidence: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .describe("Drop claims the extractor was less sure of than this."),
+        only_current: z
+          .boolean()
+          .optional()
+          .describe(
+            "Only claims nothing has superseded. Defaults to TRUE — pass " +
+              "false to see the history alongside the current answer.",
+          ),
+        include_tombstoned: includeTombstoned.optional(),
       },
     },
-    async ({ limit, cursor }) => {
+    async ({
+      limit,
+      cursor,
+      subject,
+      predicate,
+      kind,
+      min_confidence,
+      only_current,
+      include_tombstoned,
+    }) => {
       try {
-        return ok(await backend.listStatements({ limit, cursor }));
+        return ok(
+          await backend.listStatements({
+            limit,
+            cursor,
+            subject,
+            predicate,
+            kind,
+            min_confidence,
+            only_current,
+            include_tombstoned,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -294,11 +279,18 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       description: "One statement by id, with the memory it came from.",
       inputSchema: {
         statement_id: z.string().min(1).describe("The statement id."),
+        follow_supersession: z
+          .boolean()
+          .optional()
+          .describe(
+            "Follow the chain to whatever currently replaces this claim, " +
+              "rather than returning the superseded version you asked for.",
+          ),
       },
     },
-    async ({ statement_id }) => {
+    async ({ statement_id, follow_supersession }) => {
       try {
-        return ok(await backend.getStatement(statement_id));
+        return ok(await backend.getStatement(statement_id, follow_supersession));
       } catch (err) {
         return fail(err);
       }
@@ -316,11 +308,18 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       description: "One relation by id, with its endpoints and type.",
       inputSchema: {
         relation_id: z.string().min(1).describe("The relation id."),
+        follow_supersession: z
+          .boolean()
+          .optional()
+          .describe(
+            "Follow the chain to whatever currently replaces this relation, " +
+              "rather than returning the superseded version you asked for.",
+          ),
       },
     },
-    async ({ relation_id }) => {
+    async ({ relation_id, follow_supersession }) => {
       try {
-        return ok(await backend.getRelation(relation_id));
+        return ok(await backend.getRelation(relation_id, follow_supersession));
       } catch (err) {
         return fail(err);
       }
@@ -343,11 +342,26 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
         "apart.",
       inputSchema: {
         statement_id: z.string().min(1).describe("Any statement in the chain."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Page size, 1-1000."),
+        cursor: cursor.optional(),
+        include_tombstoned: includeTombstoned.optional(),
       },
     },
-    async ({ statement_id }) => {
+    async ({ statement_id, limit, cursor, include_tombstoned }) => {
       try {
-        return ok(await backend.statementHistory(statement_id));
+        return ok(
+          await backend.statementHistory(statement_id, {
+            limit,
+            cursor,
+            include_tombstoned,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -538,16 +552,24 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       },
       title: "Delete relation",
       description:
-        "Tombstone a typed edge BETWEEN ENTITIES. Traversals stop crossing it. If the edge is merely out of date, supersede_relation keeps the history; to remove an untyped edge between two MEMORIES, use `unlink`." +
-        "merely out of date, supersede_relation keeps the history.",
+        "Tombstone a typed edge BETWEEN ENTITIES. Traversals stop crossing " +
+        "it. If the edge is merely out of date, supersede_relation keeps the " +
+        "history; to remove an untyped edge between two MEMORIES, use " +
+        "`unlink`.",
       inputSchema: {
         relation_id: z.string().min(1).describe("The edge to tombstone."),
-        reason: z.string().optional().describe("Why. Kept on the record."),
+        reason: retireReason,
+        message: z.string().optional().describe("A human note kept alongside it."),
       },
     },
-    async ({ relation_id, reason }) => {
+    async ({ relation_id, reason, message }) => {
       try {
-        return ok(await backend.deleteRelation(relation_id, reason));
+        return ok(
+          await backend.deleteRelation(relation_id, {
+            reason: reasonByte(reason),
+            message,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }

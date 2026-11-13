@@ -58,7 +58,9 @@ afterAll(async () => {
 
 async function client(): Promise<Client> {
   const cfg: Config = { backendUrl: baseUrl, requestTimeoutMs: 5000 } as Config;
-  const mcp = buildServer(new BrainBackend(cfg, "brain_test_key"));
+  const mcp = buildServer(new BrainBackend(cfg, "brain_test_key"), {
+    readsLocalEnvironment: true,
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await mcp.connect(serverTransport);
   const c = new Client({ name: "test", version: "0" });

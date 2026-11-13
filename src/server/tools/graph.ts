@@ -9,6 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
 import { fail, ok } from "../result.js";
+import { cursor, includeTombstoned } from "../schema.js";
 
 export function registerGraphTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
@@ -30,11 +31,21 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
         source: z.string().min(1).describe("Source memory id."),
         target: z.string().min(1).describe("Target memory id."),
         kind: z.string().min(1).describe("Edge kind, e.g. `caused`."),
+        weight: z
+          .number()
+          .min(-1)
+          .max(1)
+          .optional()
+          .describe(
+            "Edge strength, default 1.0. `0..1` for every kind except " +
+              "`contradicts`, which takes `-1..1` so the sign can carry which " +
+              "way the contradiction runs.",
+          ),
       },
     },
-    async ({ source, target, kind }) => {
+    async ({ source, target, kind, weight }) => {
       try {
-        return ok(await backend.link(source, target, kind));
+        return ok(await backend.link(source, target, kind, weight));
       } catch (err) {
         return fail(err);
       }
@@ -79,13 +90,60 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
         "This is the typed-entity layer: edges asserted with `link` join two " +
         "memories and do NOT appear here — read those from inspect_memory.",
       inputSchema: {
-        limit: z.number().int().min(1).max(200).optional().describe("Page size."),
-        cursor: z.string().optional().describe("Opaque cursor from a previous page."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe("Page size, 1-500 (default 200)."),
+        cursor: cursor.optional(),
+        include_statements: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also emit statement nodes whose object is a literal value, with " +
+              "their `has_statement` edges. Without this the page carries only " +
+              "entity-to-entity structure.",
+          ),
+        include_memories: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also emit the source memory nodes and the `mentions` edges tying " +
+              "them to entities — where each fact came from.",
+          ),
+        include_memory_edges: z
+          .boolean()
+          .optional()
+          .describe(
+            "Also emit the memory-to-memory edges (`similar_to`, " +
+              "`followed_by`, and anything asserted with `link`) between this " +
+              "page's memory nodes. Requires `include_memories`; asking for it " +
+              "alone is rejected.",
+          ),
+        include_tombstoned: includeTombstoned.optional(),
       },
     },
-    async ({ limit, cursor }) => {
+    async ({
+      limit,
+      cursor,
+      include_statements,
+      include_memories,
+      include_memory_edges,
+      include_tombstoned,
+    }) => {
       try {
-        return ok(await backend.graph({ limit, cursor }));
+        return ok(
+          await backend.graph({
+            limit,
+            cursor,
+            include_statements,
+            include_memories,
+            include_memory_edges,
+            include_tombstoned,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }

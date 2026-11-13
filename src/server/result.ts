@@ -373,5 +373,28 @@ export function fail(err: unknown): CallToolResult {
   };
 }
 
+/**
+ * A failure this server decided on its own, before any request went out.
+ *
+ * {@link fail} classifies what a BACKEND returned; an argument this server
+ * refuses never reaches one, and routing it through `fail` renders
+ * "maybe — retry once", which is wrong in the one way that matters: the call
+ * will fail identically until the caller changes something. Misconfiguration
+ * told to retry is an agent in a loop.
+ */
+export function refuse(problem: string, fix: string): CallToolResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: [`error: ${problem}`, `retry: ${RETRY_TEXT.never}`, `fix: ${fix}`].join(
+          "\n",
+        ),
+      },
+    ],
+    isError: true,
+  };
+}
+
 /** Every code {@link fail} renders specific guidance for. Exported for tests. */
 export const KNOWN_PROBLEM_CODES = Object.keys(PROBLEMS);
