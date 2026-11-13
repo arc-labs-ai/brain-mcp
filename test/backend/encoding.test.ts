@@ -20,14 +20,20 @@ import { BrainBackend } from "../../src/backend/index.js";
 import type { Config } from "../../src/config/index.js";
 
 const seen: string[] = [];
+const bodies: string[] = [];
 let server: Server;
 let baseUrl: string;
 
 beforeAll(async () => {
   server = createServer((req: IncomingMessage, res) => {
     seen.push(req.url ?? "");
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ ok: true }));
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      bodies.push(Buffer.concat(chunks).toString("utf8"));
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
@@ -52,6 +58,19 @@ function lastUrl(): string {
   const u = seen.at(-1);
   if (u === undefined) throw new Error("no request recorded");
   return u;
+}
+
+/**
+ * The most recent request BODY the server received, parsed.
+ *
+ * A field the edge does not define is dropped silently, so asserting on the
+ * body is the only way to catch an option that never arrives — which is what
+ * `depth`/`limit` on traverse did.
+ */
+function lastBody(): Record<string, unknown> {
+  const b = bodies.at(-1);
+  if (b === undefined) throw new Error("no request recorded");
+  return b === "" ? {} : (JSON.parse(b) as Record<string, unknown>);
 }
 
 describe("brain-mcp URL construction", () => {
@@ -109,11 +128,35 @@ describe("brain-mcp URL construction", () => {
     expect(lastUrl()).toBe("/v1/memories/m-1/inspect");
   });
 
-  it("list_entities sends the required entity_type_id alongside paging", async () => {
+  /*
+   * The query field is `type_id`, and this test asserted `entity_type_id`.
+   *
+   * `entity_type_id` is the WIRE field's name, not the query parameter's, so
+   * the edge never saw the filter: an unknown query key is dropped, the type
+   * defaulted to 0, and Brain refuses 0 with "entity_type_id filter is
+   * required in v1.0 ENTITY_LIST". Every list_entities call failed, and this
+   * test passed throughout, because it checked the name the caller used
+   * rather than the one the route reads.
+   */
+  it("list_entities sends the type filter under the query field the edge reads", async () => {
     await backend().listEntities(7, { limit: 25 });
     const qs = new URLSearchParams(lastUrl().split("?")[1] ?? "");
-    expect(qs.get("entity_type_id")).toBe("7");
+    expect(qs.get("type_id")).toBe("7");
+    expect(qs.get("entity_type_id")).toBeNull();
     expect(qs.get("limit")).toBe("25");
+  });
+
+  it("traverse_entity sends the body fields the edge reads", async () => {
+    // Same class of defect: the body carried `depth`/`limit`, which
+    // TraverseBody does not define, so both were dropped and every traversal
+    // silently ran at the server defaults.
+    const b = backend();
+    await b.traverseEntity("e-1", { max_depth: 2, max_nodes: 50, direction: "both" });
+    expect(lastBody()).toMatchObject({
+      max_depth: 2,
+      max_nodes: 50,
+      direction: "both",
+    });
   });
 });
 

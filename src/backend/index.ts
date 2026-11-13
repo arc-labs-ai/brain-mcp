@@ -127,13 +127,25 @@ export interface RelationBody {
  * values are encoded, so an id or cursor containing `&` or `=` cannot alter
  * the query it is placed in.
  */
-function withQuery(path: string, params: Record<string, unknown>): string {
+function withQuery(path: string, params: object): string {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null) qs.set(k, String(v));
   }
   const s = qs.toString();
   return s ? `${path}?${s}` : path;
+}
+
+/**
+ * Drop undefined entries from a request body.
+ *
+ * An omitted option must be ABSENT, not `null`. Every optional field on the
+ * edge is `#[serde(default)]` over an `Option`, so an absent key takes the
+ * documented default while an explicit `null` is a type error on the fields
+ * that are not themselves nullable.
+ */
+function compact(body: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
 }
 
 /**
@@ -168,6 +180,175 @@ function summariseArtifact(raw: Record<string, unknown>): Record<string, unknown
   };
 }
 
+// ---------------------------------------------------------------------
+// Option bags
+// ---------------------------------------------------------------------
+//
+// One per route that takes more than its required arguments, named for the
+// route rather than the tool so the mapping to the edge's DTO stays visible.
+// Field names are the WIRE names, so a handler forwards its arguments without
+// a translation step that could silently drop one.
+
+/** `POST /v1/memories` beyond the text. */
+export interface RememberOptions {
+  /** Session to attribute the write to. */
+  session?: number;
+  /** When the remembered thing happened, as opposed to when it was stored. */
+  occurred_at_unix_nanos?: number;
+}
+
+/** `POST /v1/recall` beyond the cue. */
+export interface RecallOptions {
+  max_results?: number;
+  /** Narrow the cue to claims about one subject. */
+  subject?: string;
+  /** `space` (default, the caller's own) or `namespace` (every space in it). */
+  scope?: string;
+  /** Return the read-pipeline trace. Large — it grows with the space, not with
+   *  `max_results`. */
+  include_trace?: boolean;
+  /** Return each hit's typed-graph enrichment. */
+  include_graph?: boolean;
+}
+
+/** `GET /v1/memories`. */
+export interface ListMemoriesOptions {
+  limit?: number;
+  cursor?: string;
+  /** `desc` (default, newest first) or `asc`. */
+  dir?: string;
+  include_tombstoned?: boolean;
+}
+
+/** `GET /v1/graph`. */
+export interface GraphOptions {
+  limit?: number;
+  cursor?: string;
+  include_statements?: boolean;
+  include_memories?: boolean;
+  /** Requires `include_memories`; rejected on its own. */
+  include_memory_edges?: boolean;
+  include_tombstoned?: boolean;
+}
+
+/** `GET /v1/entities`, beyond the required type. */
+export interface ListEntitiesOptions {
+  limit?: number;
+  cursor?: string;
+  /** Name-prefix filter. */
+  prefix?: string;
+  mention_count_min?: number;
+  include_tombstoned?: boolean;
+  /** Include entities merged away into a survivor. */
+  include_merged?: boolean;
+}
+
+/** `POST /v1/entities/resolve`, beyond the candidate name. */
+export interface ResolveEntityOptions {
+  /** Free text that disambiguates which of several same-named things is meant. */
+  resolution_context?: string;
+  /** Entity type to resolve within; omitted resolves across every type. */
+  type_hint?: number;
+  /** Mint a new entity on a miss. Default false — resolve is a read. */
+  allow_create?: boolean;
+}
+
+/** `POST /v1/entities/{id}/traverse`. */
+export interface TraverseOptions {
+  /** `outgoing` (default), `incoming`, or `both`. */
+  direction?: string;
+  /** Relation types to follow; empty follows every type. */
+  relation_types?: string[];
+  max_depth?: number;
+  max_nodes?: number;
+  include_superseded?: boolean;
+}
+
+/** `GET /v1/entities/{id}/relations`. */
+export interface EntityRelationsOptions {
+  limit?: number;
+  cursor?: string;
+  /** `from`/outgoing (default) or `to`/incoming. */
+  direction?: string;
+  /** Relation-type filter. Sent as `type`, which is the query field's name. */
+  relation_type?: string;
+  include_superseded?: boolean;
+  include_tombstoned?: boolean;
+}
+
+/** `GET /v1/statements`. */
+export interface ListStatementsOptions {
+  limit?: number;
+  cursor?: string;
+  /** Subject entity id (UUID). */
+  subject?: string;
+  predicate?: string;
+  /** `fact`, `preference`, … */
+  kind?: string;
+  min_confidence?: number;
+  /** Only non-superseded statements. Defaults to TRUE server-side. */
+  only_current?: boolean;
+  include_tombstoned?: boolean;
+}
+
+/** `GET /v1/statements/{id}/history`. */
+export interface StatementHistoryOptions {
+  limit?: number;
+  cursor?: string;
+  include_tombstoned?: boolean;
+}
+
+/** `POST /v1/reason`, beyond the observation. */
+export interface ReasonOptions {
+  /** Inference hops to take. */
+  depth?: number;
+  /** Floor an inference must clear to be reported. */
+  confidence_threshold?: number;
+  max_inferences?: number;
+  budget_wall_time_ms?: number;
+  include_trace?: boolean;
+}
+
+/** `POST /v1/plan`, beyond the endpoints. */
+export interface PlanOptions {
+  max_steps?: number;
+  max_wall_time_ms?: number;
+  max_branches?: number;
+  strategy?: string;
+  include_trace?: boolean;
+}
+
+/** `POST /v1/query/explain` and `/trace`, beyond the cue text. */
+export interface QueryOptions {
+  /** Entity id to anchor the query on. */
+  entity_anchor?: string;
+  kinds?: string[];
+  predicates?: string[];
+  sessions?: number[];
+  time_range?: { from_unix_ms?: number; to_unix_ms?: number };
+  as_of_record_time_unix_nanos?: number;
+  confidence_min?: number;
+  include_tombstoned?: boolean;
+  include_superseded?: boolean;
+  limit?: number;
+  /** Retriever lanes to run; omitted runs the planner's choice. */
+  retrievers?: string[];
+  fusion?: {
+    k?: number;
+    semantic_weight?: number;
+    lexical_weight?: number;
+    graph_weight?: number;
+  };
+}
+
+/** `POST /v1/schema` and `/validate`. */
+export interface SchemaOptions {
+  /** Validate and report without committing. */
+  dry_run?: boolean;
+  /** Permit a change that invalidates existing data. */
+  allow_breaking?: boolean;
+}
+
 export class BrainBackend {
   /**
    * @param cfg   Process-wide settings: where the backend is, how long to wait.
@@ -182,17 +363,32 @@ export class BrainBackend {
   ) {}
 
   /** Ingest text as a memory in the caller's workspace. */
-  async remember(content: string): Promise<RememberResult> {
-    return this.request<RememberResult>("POST", "/v1/memories", {
-      text: content,
-    });
+  async remember(content: string, opts: RememberOptions = {}): Promise<RememberResult> {
+    return this.request<RememberResult>(
+      "POST",
+      "/v1/memories",
+      compact({
+        text: content,
+        session: opts.session,
+        occurred_at_unix_nanos: opts.occurred_at_unix_nanos,
+      }),
+    );
   }
 
   /** Recall the current, consistent truth for the caller against `query`. */
-  async recall(query: string, maxResults?: number): Promise<RecallResult> {
-    const body: Record<string, unknown> = { query };
-    if (maxResults !== undefined) body.max_results = maxResults;
-    return this.request<RecallResult>("POST", "/v1/recall", body);
+  async recall(query: string, opts: RecallOptions = {}): Promise<RecallResult> {
+    return this.request<RecallResult>(
+      "POST",
+      "/v1/recall",
+      compact({
+        query,
+        max_results: opts.max_results,
+        subject: opts.subject,
+        scope: opts.scope,
+        include_trace: opts.include_trace,
+        include_graph: opts.include_graph,
+      }),
+    );
   }
 
   /** Tombstone (soft) or zero (hard) a memory. */
@@ -220,13 +416,45 @@ export class BrainBackend {
   // ---------------------------------------------------------------------
 
   /** List stored memories, newest first. */
-  async listMemories(
-    opts: { limit?: number; cursor?: string } = {},
-  ): Promise<Record<string, unknown>> {
+  async listMemories(opts: ListMemoriesOptions = {}): Promise<Record<string, unknown>> {
     return this.request("GET", withQuery("/v1/memories", opts), undefined);
   }
 
   /** Full detail for one memory: the extracted graph, provenance, scoring. */
+  /**
+   * Store a memory whose embedding the CALLER computed.
+   *
+   * The vector must match the engine's dimension and the model that produced
+   * it — `model_fingerprint` is how Brain refuses a vector from a different
+   * embedder, which would otherwise be stored and retrieved as noise.
+   * `capabilities` reports the dimension this deployment expects.
+   */
+  async encodeVector(
+    text: string,
+    vector: number[],
+    modelFingerprint: string,
+    opts: {
+      session?: number;
+      kind?: number;
+      salience_hint?: number;
+      deduplicate?: boolean;
+    } = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "POST",
+      "/v1/memories/vector",
+      compact({
+        text,
+        vector,
+        model_fingerprint: modelFingerprint,
+        session: opts.session,
+        kind: opts.kind,
+        salience_hint: opts.salience_hint,
+        deduplicate: opts.deduplicate,
+      }),
+    );
+  }
+
   async inspectMemory(memoryId: string): Promise<Record<string, unknown>> {
     const raw = await this.request<Record<string, unknown>>(
       "GET",
@@ -244,21 +472,40 @@ export class BrainBackend {
   async plan(
     start: string,
     goal: string,
-    maxSteps?: number,
+    opts: PlanOptions = {},
   ): Promise<Record<string, unknown>> {
-    const body: Record<string, unknown> = {
-      start: { text: start },
-      goal: { text: goal },
-    };
-    if (maxSteps !== undefined) body.max_steps = maxSteps;
-    return this.request("POST", "/v1/plan", body);
+    return this.request(
+      "POST",
+      "/v1/plan",
+      compact({
+        start: { text: start },
+        goal: { text: goal },
+        max_steps: opts.max_steps,
+        max_wall_time_ms: opts.max_wall_time_ms,
+        max_branches: opts.max_branches,
+        strategy: opts.strategy,
+        include_trace: opts.include_trace,
+      }),
+    );
   }
 
   /** Infer over the stored graph from an observation. */
-  async reason(observation: string): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/reason", {
-      observation: { text: observation },
-    });
+  async reason(
+    observation: string,
+    opts: ReasonOptions = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "POST",
+      "/v1/reason",
+      compact({
+        observation: { text: observation },
+        depth: opts.depth,
+        confidence_threshold: opts.confidence_threshold,
+        max_inferences: opts.max_inferences,
+        budget_wall_time_ms: opts.budget_wall_time_ms,
+        include_trace: opts.include_trace,
+      }),
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -270,8 +517,9 @@ export class BrainBackend {
     source: string,
     target: string,
     kind: string,
+    weight?: number,
   ): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/links", { source, target, kind });
+    return this.request("POST", "/v1/links", compact({ source, target, kind, weight }));
   }
 
   /** Remove a typed edge between two memories. */
@@ -284,9 +532,7 @@ export class BrainBackend {
   }
 
   /** A page of the knowledge graph. */
-  async graph(
-    opts: { limit?: number; cursor?: string } = {},
-  ): Promise<Record<string, unknown>> {
+  async graph(opts: GraphOptions = {}): Promise<Record<string, unknown>> {
     return this.request("GET", withQuery("/v1/graph", opts), undefined);
   }
 
@@ -298,31 +544,49 @@ export class BrainBackend {
   async createEntity(
     entityTypeId: number,
     canonicalName: string,
+    aliases?: string[],
   ): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/entities", {
-      entity_type_id: entityTypeId,
-      canonical_name: canonicalName,
-    });
+    return this.request(
+      "POST",
+      "/v1/entities",
+      compact({
+        entity_type_id: entityTypeId,
+        canonical_name: canonicalName,
+        aliases,
+      }),
+    );
   }
 
   /** List entities. `entity_type_id` is required by the edge — a list across
    *  every type is refused rather than silently paged. */
   async listEntities(
     entityTypeId: number,
-    opts: { limit?: number; cursor?: string } = {},
+    opts: ListEntitiesOptions = {},
   ): Promise<Record<string, unknown>> {
+    // The edge reads the type as `type_id`; `entity_type_id` is the wire
+    // field's name and reaches it only after that rename.
     return this.request(
       "GET",
-      withQuery("/v1/entities", { entity_type_id: entityTypeId, ...opts }),
+      withQuery("/v1/entities", { type_id: entityTypeId, ...opts }),
       undefined,
     );
   }
 
   /** Resolve a surface form to an existing entity (or report no match). */
-  async resolveEntity(candidateName: string): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/entities/resolve", {
-      candidate_name: candidateName,
-    });
+  async resolveEntity(
+    candidateName: string,
+    opts: ResolveEntityOptions = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "POST",
+      "/v1/entities/resolve",
+      compact({
+        candidate_name: candidateName,
+        resolution_context: opts.resolution_context,
+        type_hint: opts.type_hint,
+        allow_create: opts.allow_create,
+      }),
+    );
   }
 
   /** One entity by id. */
@@ -333,23 +597,29 @@ export class BrainBackend {
   /** Walk the relation graph outward from an entity. */
   async traverseEntity(
     entityId: string,
-    opts: { depth?: number; limit?: number } = {},
+    opts: TraverseOptions = {},
   ): Promise<Record<string, unknown>> {
     return this.request(
       "POST",
       `/v1/entities/${encodeURIComponent(entityId)}/traverse`,
-      opts,
+      compact({ ...opts }),
     );
   }
 
   /** Relations attached to an entity. */
   async entityRelations(
     entityId: string,
-    opts: { limit?: number; cursor?: string } = {},
+    opts: EntityRelationsOptions = {},
   ): Promise<Record<string, unknown>> {
     return this.request(
       "GET",
-      withQuery(`/v1/entities/${encodeURIComponent(entityId)}/relations`, opts),
+      withQuery(`/v1/entities/${encodeURIComponent(entityId)}/relations`, {
+        ...opts,
+        relation_type: undefined,
+        // The query field is `type`; `relation_type` is the option's name and
+        // reaches the edge only after this rename.
+        type: opts.relation_type,
+      }),
       undefined,
     );
   }
@@ -360,25 +630,35 @@ export class BrainBackend {
 
   /** List statements (subject–predicate–object facts). */
   async listStatements(
-    opts: { limit?: number; cursor?: string } = {},
+    opts: ListStatementsOptions = {},
   ): Promise<Record<string, unknown>> {
     return this.request("GET", withQuery("/v1/statements", opts), undefined);
   }
 
   /** One statement by id. */
-  async getStatement(statementId: string): Promise<Record<string, unknown>> {
+  async getStatement(
+    statementId: string,
+    followSupersession?: boolean,
+  ): Promise<Record<string, unknown>> {
     return this.request(
       "GET",
-      `/v1/statements/${encodeURIComponent(statementId)}`,
+      withQuery(`/v1/statements/${encodeURIComponent(statementId)}`, {
+        follow_supersession: followSupersession,
+      }),
       undefined,
     );
   }
 
   /** One relation by id. */
-  async getRelation(relationId: string): Promise<Record<string, unknown>> {
+  async getRelation(
+    relationId: string,
+    followSupersession?: boolean,
+  ): Promise<Record<string, unknown>> {
     return this.request(
       "GET",
-      `/v1/relations/${encodeURIComponent(relationId)}`,
+      withQuery(`/v1/relations/${encodeURIComponent(relationId)}`, {
+        follow_supersession: followSupersession,
+      }),
       undefined,
     );
   }
@@ -388,20 +668,61 @@ export class BrainBackend {
   // ---------------------------------------------------------------------
 
   /** The active schema document, or a clean 404 when none is declared. */
-  async getSchema(): Promise<Record<string, unknown>> {
-    return this.request("GET", "/v1/schema", undefined);
+  async getSchema(
+    opts: { namespace?: string; version?: number } = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request("GET", withQuery("/v1/schema", opts), undefined);
   }
 
   /** Validate a schema document WITHOUT storing it. */
-  async validateSchema(document: string): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/schema/validate", {
-      schema_document: document,
-    });
+  async validateSchema(
+    document: string,
+    scope?: string,
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "POST",
+      "/v1/schema/validate",
+      compact({ schema_document: document, scope }),
+    );
   }
 
   /** Upload (merge) a schema document. */
-  async uploadSchema(document: string): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/schema", { schema_document: document });
+  /**
+   * REPLACE the active schema rather than merging into it.
+   *
+   * `force_drop_existing` consents to dropping declarations the new document
+   * omits — and the rows bound to them go with their declaration. Upload
+   * merges; this is the verb that can remove.
+   */
+  async replaceSchema(
+    document: string,
+    opts: { force_drop_existing: boolean; scope?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "PUT",
+      "/v1/schema",
+      compact({
+        schema_document: document,
+        force_drop_existing: opts.force_drop_existing,
+        scope: opts.scope,
+      }),
+    );
+  }
+
+  async uploadSchema(
+    document: string,
+    opts: SchemaOptions & { scope?: string } = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "POST",
+      "/v1/schema",
+      compact({
+        schema_document: document,
+        dry_run: opts.dry_run,
+        allow_breaking: opts.allow_breaking,
+        scope: opts.scope,
+      }),
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -539,10 +860,13 @@ export class BrainBackend {
   }
 
   /** The full supersession chain for a claim, oldest to newest. */
-  async statementHistory(statementId: string): Promise<Record<string, unknown>> {
+  async statementHistory(
+    statementId: string,
+    opts: StatementHistoryOptions = {},
+  ): Promise<Record<string, unknown>> {
     return this.request(
       "GET",
-      `/v1/statements/${encodeURIComponent(statementId)}/history`,
+      withQuery(`/v1/statements/${encodeURIComponent(statementId)}/history`, opts),
       undefined,
     );
   }
@@ -571,11 +895,11 @@ export class BrainBackend {
   /** Tombstone an edge. */
   async deleteRelation(
     relationId: string,
-    reason?: string,
+    opts: { reason?: number; message?: string } = {},
   ): Promise<Record<string, unknown>> {
     return this.request(
       "DELETE",
-      withQuery(`/v1/relations/${encodeURIComponent(relationId)}`, { reason }),
+      withQuery(`/v1/relations/${encodeURIComponent(relationId)}`, opts),
       undefined,
     );
   }
@@ -598,6 +922,11 @@ export class BrainBackend {
     return this.request("GET", "/v1/extractors", undefined);
   }
 
+  /** The entity types this workspace can use, with their numeric ids. */
+  async listEntityTypes(): Promise<Record<string, unknown>> {
+    return this.request("GET", "/v1/entity-types", undefined);
+  }
+
   /** Drop one declared predicate or relation type.
    *
    *  `kind` is `predicate` or `relation_type` and nothing else — entity types
@@ -610,13 +939,14 @@ export class BrainBackend {
   async dropSchemaType(
     kind: string,
     name: string,
-    force?: boolean,
+    opts: { force?: boolean; scope?: string } = {},
   ): Promise<Record<string, unknown>> {
     return this.request(
       "DELETE",
-      withQuery(`/v1/schema/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`, {
-        force,
-      }),
+      withQuery(
+        `/v1/schema/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
+        opts,
+      ),
       undefined,
     );
   }
@@ -626,13 +956,19 @@ export class BrainBackend {
   // ---------------------------------------------------------------------
 
   /** Plan a query without running it. */
-  async explainQuery(text: string): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/query/explain", { text });
+  async explainQuery(
+    text: string,
+    opts: QueryOptions = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request("POST", "/v1/query/explain", compact({ text, ...opts }));
   }
 
   /** Run a query and report what each stage actually cost. The query RUNS. */
-  async traceQuery(text: string): Promise<Record<string, unknown>> {
-    return this.request("POST", "/v1/query/trace", { text });
+  async traceQuery(
+    text: string,
+    opts: QueryOptions = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request("POST", "/v1/query/trace", compact({ text, ...opts }));
   }
 
   // ---------------------------------------------------------------------
@@ -641,7 +977,12 @@ export class BrainBackend {
 
   /** Render this workspace's stored directives into a system-prompt block. */
   async materialiseDirectives(
-    opts: { top_k?: number; min_confidence?: number; categories?: string[] } = {},
+    opts: {
+      sessions?: number[];
+      top_k?: number;
+      min_confidence?: number;
+      categories?: string[];
+    } = {},
   ): Promise<Record<string, unknown>> {
     return this.request("POST", "/v1/procedural/materialize", opts);
   }
@@ -649,11 +990,11 @@ export class BrainBackend {
   // ---------------------------------------------------------------------
   // Sessions and spaces
   //
-  // Only the non-destructive half. `POST`/`DELETE /v1/spaces` are absent on
-  // purpose: neither takes a path parameter, because all three space verbs act
-  // on the CALLER'S OWN space, which Brain resolves from `act_as`. A delete is
-  // therefore not "remove a space" but "erase this workspace", from one tool
-  // call, with no id to get wrong and nothing to undo it.
+  // No space verb takes a path parameter: all three act on the CALLER'S OWN
+  // space, which Brain resolves from the credential. So a delete here is not
+  // "remove a space" but "erase this workspace", and there is no id in the
+  // request that could fail to match. The tool layer supplies one — see
+  // `delete_space` in ../server/tools/workspace.ts.
   // ---------------------------------------------------------------------
 
   /** Provision a session. Idempotent on the client-chosen id. */
@@ -689,6 +1030,23 @@ export class BrainBackend {
     return this.request("GET", withQuery("/v1/spaces", { limit }), undefined);
   }
 
+  /** Create a space under the caller's namespace. */
+  async createSpace(metadata?: string): Promise<Record<string, unknown>> {
+    return this.request("POST", "/v1/spaces", compact({ metadata }));
+  }
+
+  /**
+   * Erase the caller's own workspace: its memories, and the typed graph
+   * derived from them.
+   *
+   * There is no id in the request, so nothing here can distinguish one space
+   * from another — the credential decides which one is erased. Whatever
+   * confirms that intent has to be checked before this is called.
+   */
+  async deleteSpace(): Promise<Record<string, unknown>> {
+    return this.request("DELETE", "/v1/spaces", undefined);
+  }
+
   // ---------------------------------------------------------------------
   // Capabilities and BYOK credential
   // ---------------------------------------------------------------------
@@ -704,6 +1062,49 @@ export class BrainBackend {
     return this.request("GET", "/v1/llm-credential", undefined);
   }
 
+  /**
+   * Register (or replace) this tenant's provider key.
+   *
+   * `apiKey` is a live secret. It is a parameter rather than something this
+   * method reads, so the one place that touches the environment is the tool
+   * handler — and the value never passes through a tool ARGUMENT, which is
+   * what would put it in the model's context.
+   *
+   * The edge verifies the key with the provider before storing it, so a
+   * typo fails here rather than on every later write with an opaque 401.
+   */
+  async putLlmCredential(
+    provider: string,
+    model: string,
+    apiKey: string,
+  ): Promise<Record<string, unknown>> {
+    return this.request("PUT", "/v1/llm-credential", {
+      provider,
+      model,
+      api_key: apiKey,
+    });
+  }
+
+  /** Probe a key against its provider WITHOUT storing it or touching the
+   *  one already registered. */
+  async testLlmCredential(
+    provider: string,
+    model: string,
+    apiKey: string,
+  ): Promise<Record<string, unknown>> {
+    return this.request("POST", "/v1/llm-credential/test", {
+      provider,
+      model,
+      api_key: apiKey,
+    });
+  }
+
+  /** Revoke this tenant's provider key. Reports whether anything was
+   *  removed, so "revoked" and "there was nothing there" stay distinct. */
+  async deleteLlmCredential(): Promise<Record<string, unknown>> {
+    return this.request("DELETE", "/v1/llm-credential", undefined);
+  }
+
   /** Re-probe the key already installed, by asking the provider.
    *
    *  No argument and no secret in flight: unlike `POST /v1/llm-credential/test`
@@ -713,6 +1114,109 @@ export class BrainBackend {
    *  on a write. */
   async verifyLlmCredential(): Promise<Record<string, unknown>> {
     return this.request("POST", "/v1/llm-credential/verify", {});
+  }
+
+  /**
+   * Read a BOUNDED slice of the change feed and return it.
+   *
+   * `GET /v1/subscribe` is Server-Sent Events: it opens and stays open. MCP
+   * tools are request/response, so the stream is drained to a deadline and a
+   * count, then closed, and the last LSN comes back so the next call resumes
+   * where this one stopped. That makes "follow the feed" a loop the AGENT
+   * drives, which is the only shape a request/response tool can honestly
+   * offer — a tool that promised to stream would simply hang.
+   *
+   * Ends at whichever comes first: `maxEvents`, `waitMs`, or the server
+   * closing. Returning early with nothing is a normal outcome, not an error:
+   * a quiet feed has no events to report.
+   */
+  async drainEvents(
+    opts: {
+      from_lsn?: number;
+      sessions?: string;
+      kinds?: string;
+      memories?: string;
+      include_history?: boolean;
+    },
+    maxEvents: number,
+    waitMs: number,
+  ): Promise<{ events: unknown[]; last_lsn: number | null; truncated: boolean }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), waitMs);
+    const path = withQuery("/v1/subscribe", opts);
+    let res: Response;
+    try {
+      res = await fetch(`${this.cfg.backendUrl}${path}`, {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${this.credential}`,
+          accept: "text/event-stream",
+        },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof Error && err.name === "AbortError") {
+        return { events: [], last_lsn: null, truncated: false };
+      }
+      throw new BackendError(502, `subscribe failed: ${String(err)}`);
+    }
+    if (!res.ok) {
+      clearTimeout(timer);
+      throw new BackendError(res.status, await res.text());
+    }
+
+    const events: unknown[] = [];
+    let lastLsn: number | null = null;
+    let truncated = false;
+    const reader = res.body?.getReader();
+    if (reader === undefined) {
+      clearTimeout(timer);
+      return { events, last_lsn: lastLsn, truncated };
+    }
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (events.length < maxEvents) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE frames are separated by a blank line; `id:` carries the LSN
+        // and `data:` the JSON payload.
+        let split = buffer.indexOf("\n\n");
+        while (split !== -1 && events.length < maxEvents) {
+          const frame = buffer.slice(0, split);
+          buffer = buffer.slice(split + 2);
+          const data = frame
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trim())
+            .join("");
+          const id = frame
+            .split("\n")
+            .find((l) => l.startsWith("id:"))
+            ?.slice(3)
+            .trim();
+          if (id !== undefined && /^\d+$/.test(id)) lastLsn = Number(id);
+          if (data !== "") {
+            try {
+              events.push(JSON.parse(data));
+            } catch {
+              events.push({ raw: data });
+            }
+          }
+          split = buffer.indexOf("\n\n");
+        }
+      }
+      truncated = events.length >= maxEvents;
+    } catch (err) {
+      // An abort is the deadline doing its job, not a failure.
+      if (!(err instanceof Error && err.name === "AbortError")) throw err;
+    } finally {
+      clearTimeout(timer);
+      await reader.cancel().catch(() => {});
+    }
+    return { events, last_lsn: lastLsn, truncated };
   }
 
   private async request<T>(method: string, path: string, body: unknown): Promise<T> {

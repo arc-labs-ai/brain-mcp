@@ -44,11 +44,56 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
             "Cap on plan length, 1-10. Brain refuses more than its " +
               "max_traversal_depth (default 10).",
           ),
+        max_branches: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("How many alternatives to explore at each step."),
+        max_wall_time_ms: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Give up after this long and return the best route found so far."),
+        strategy: z
+          .enum(["auto", "astar", "mcts", "attractor"])
+          .optional()
+          .describe(
+            "Search strategy. `auto` (default) lets Brain choose; the others " +
+              "pin it — `astar` for a shortest path over known edges, `mcts` " +
+              "when the branching is wide, `attractor` for a rollout toward " +
+              "the goal region.",
+          ),
+        include_trace: z
+          .boolean()
+          .optional()
+          .describe(
+            "Return the bidirectional-search trace: every node visited from " +
+              "each end and every meeting point, including ones a cap " +
+              "dropped. For diagnosing a route you did not expect.",
+          ),
       },
     },
-    async ({ start, goal, max_steps }) => {
+    async ({
+      start,
+      goal,
+      max_steps,
+      max_branches,
+      max_wall_time_ms,
+      strategy,
+      include_trace,
+    }) => {
       try {
-        return ok(await backend.plan(start, goal, max_steps));
+        return ok(
+          await backend.plan(start, goal, {
+            max_steps,
+            max_branches,
+            max_wall_time_ms,
+            strategy,
+            include_trace,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -68,11 +113,58 @@ export function registerCognitiveTools(server: McpServer, backend: BrainBackend)
         "in the workspace. Use to check an implication before acting on it.",
       inputSchema: {
         observation: z.string().min(1).describe("What was observed."),
+        depth: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("How many inference hops to take from the observation."),
+        confidence_threshold: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .describe("Drop inferences below this confidence rather than reporting them."),
+        max_inferences: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Cap on how many conclusions come back."),
+        budget_wall_time_ms: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Give up after this long and return what was inferred so far."),
+        include_trace: z
+          .boolean()
+          .optional()
+          .describe(
+            "Return the evidence walk: every edge considered, what pruned the " +
+              "ones that were dropped, and the components behind each " +
+              "confidence. For diagnosing an inference you did not expect.",
+          ),
       },
     },
-    async ({ observation }) => {
+    async ({
+      observation,
+      depth,
+      confidence_threshold,
+      max_inferences,
+      budget_wall_time_ms,
+      include_trace,
+    }) => {
       try {
-        return ok(await backend.reason(observation));
+        return ok(
+          await backend.reason(observation, {
+            depth,
+            confidence_threshold,
+            max_inferences,
+            budget_wall_time_ms,
+            include_trace,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }

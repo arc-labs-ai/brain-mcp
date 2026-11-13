@@ -56,7 +56,9 @@ beforeAll(async () => {
     } else if (path === "/v1/memories" && req.method === "DELETE") {
       res.end(JSON.stringify({ forgotten: true }));
     } else if (path === "/v1/whoami") {
-      res.end(JSON.stringify({ namespace: "acme", bound: true }));
+      // `space_id` is part of the real DTO and `delete_space` confirms
+      // against it, so the stand-in has to carry it.
+      res.end(JSON.stringify({ namespace: "acme", space_id: "s", bound: true }));
     } else {
       // Permissive 200 for the route-table sweep below. The four cases above
       // keep their exact DTOs because those tests assert on the mapped result;
@@ -118,7 +120,9 @@ function makeConfig(): Config {
 }
 
 async function client(credential = "brain_test_key"): Promise<Client> {
-  const srv = buildServer(new BrainBackend(makeConfig(), credential));
+  const srv = buildServer(new BrainBackend(makeConfig(), credential), {
+    readsLocalEnvironment: true,
+  });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await srv.connect(st);
   const c = new Client({ name: "e2e", version: "0" });
@@ -189,6 +193,27 @@ describe("brain-mcp → /v1/* contract", () => {
     await c.close();
   });
 
+  /**
+   * The guard that makes erasing a workspace safe to expose at all.
+   *
+   * A refusal that still sent the request would be worse than no guard,
+   * because it would read as a refusal. So this asserts the absence of the
+   * DELETE, not just the error — the workspace survives a caller that was
+   * wrong about which one it was in.
+   */
+  it("delete_space refuses a confirmation that names another space, and deletes nothing", async () => {
+    captured.length = 0;
+    const c = await client();
+    const res = await c.callTool({
+      name: "delete_space",
+      arguments: { confirm_space_id: "a-different-space" },
+    });
+    expect(res.isError, "a mismatch must be an error").toBe(true);
+    const sent = captured.map((r) => `${r.method} ${(r.url ?? "").split("?")[0]}`);
+    expect(sent, "it reads whoami to check, and stops there").toEqual(["GET /v1/whoami"]);
+    await c.close();
+  });
+
   it("each caller's own credential reaches the backend, not a shared one", async () => {
     captured.length = 0;
     const alice = await client("brain_alice");
@@ -226,6 +251,16 @@ interface RouteCase {
   method: string;
   path: string;
 }
+
+/**
+ * An environment variable standing in for one holding a provider key.
+ *
+ * The key tools take the NAME of a variable and read it in the handler, so a
+ * test that passed a literal would be testing the thing the design exists to
+ * prevent. Set here so the call reaches a route.
+ */
+const KEY_ENV = "BRAIN_MCP_TEST_PROVIDER_KEY";
+process.env[KEY_ENV] = "sk-test-not-a-real-key";
 
 const ROUTES: RouteCase[] = [
   { tool: "capabilities", args: {}, method: "GET", path: "/v1/capabilities" },
@@ -334,6 +369,7 @@ const ROUTES: RouteCase[] = [
     method: "GET",
     path: "/v1/entities",
   },
+  { tool: "list_entity_types", args: {}, method: "GET", path: "/v1/entity-types" },
   { tool: "list_extractors", args: {}, method: "GET", path: "/v1/extractors" },
   { tool: "list_memories", args: {}, method: "GET", path: "/v1/memories" },
   { tool: "list_schema_versions", args: {}, method: "GET", path: "/v1/schemas" },
@@ -448,6 +484,63 @@ const ROUTES: RouteCase[] = [
     path: "/v1/llm-credential/verify",
   },
   { tool: "whoami", args: {}, method: "GET", path: "/v1/whoami" },
+  // Two requests: the confirmation is read from whoami first, and the route
+  // asserted below is the last one sent — the delete itself.
+  {
+    tool: "delete_space",
+    args: { confirm_space_id: "s" },
+    method: "DELETE",
+    path: "/v1/spaces",
+  },
+  {
+    tool: "create_space",
+    args: {},
+    method: "POST",
+    path: "/v1/spaces",
+  },
+  {
+    tool: "replace_schema",
+    args: { schema_document: "x", force_drop_existing: false },
+    method: "PUT",
+    path: "/v1/schema",
+  },
+  {
+    tool: "encode_vector",
+    args: {
+      text: "x",
+      vector: [0.1, 0.2],
+      model_fingerprint: "0123456789abcdef0123456789abcdef",
+    },
+    method: "POST",
+    path: "/v1/memories/vector",
+  },
+  {
+    tool: "subscribe_events",
+    args: { max_events: 1, wait_ms: 200 },
+    method: "GET",
+    path: "/v1/subscribe",
+  },
+  {
+    tool: "delete_llm_credential",
+    args: {},
+    method: "DELETE",
+    path: "/v1/llm-credential",
+  },
+  // The two key tools take an env var's NAME; the handler reads it, so the
+  // variable has to exist for the call to reach a route at all. That is the
+  // behaviour under test as much as the path is.
+  {
+    tool: "put_llm_credential",
+    args: { provider: "openai", model: "gpt-4o-mini", api_key_env: KEY_ENV },
+    method: "PUT",
+    path: "/v1/llm-credential",
+  },
+  {
+    tool: "test_llm_credential",
+    args: { provider: "openai", model: "gpt-4o-mini", api_key_env: KEY_ENV },
+    method: "POST",
+    path: "/v1/llm-credential/test",
+  },
 ];
 
 describe("every tool's route", () => {

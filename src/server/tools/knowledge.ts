@@ -15,6 +15,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
 import { fail, ok } from "../result.js";
+import { cursor, includeTombstoned, unixNanos } from "../schema.js";
 
 /**
  * A statement's object, in the tagged shape the contract uses on both sides.
@@ -70,24 +71,21 @@ const statementFields = {
     ),
   object: statementObject.describe("What the claim is about."),
   confidence: z.number().min(0).max(1).optional().describe("0..1. Defaults to certain."),
-  event_at_unix_nanos: z
-    .number()
-    .int()
-    .nonnegative()
+  event_at_unix_nanos: unixNanos
     .optional()
-    .describe("When the thing HAPPENED. Distinct from when the claim is held true."),
-  valid_from_unix_nanos: z
-    .number()
-    .int()
-    .nonnegative()
+    .describe(
+      "When the thing HAPPENED — distinct from when the claim is held true. " +
+        "ISO-8601 (`2026-03-01T00:00:00Z`) or unix nanoseconds.",
+    ),
+  valid_from_unix_nanos: unixNanos
     .optional()
-    .describe("When the claim starts being true. Omitted = now."),
-  valid_to_unix_nanos: z
-    .number()
-    .int()
-    .nonnegative()
+    .describe(
+      "When the claim starts being true. ISO-8601 or unix nanoseconds. " +
+        "Omitted = now.",
+    ),
+  valid_to_unix_nanos: unixNanos
     .optional()
-    .describe("When it stops. Omitted = still valid."),
+    .describe("When it stops. ISO-8601 or unix nanoseconds. Omitted = still valid."),
   session_id: z
     .number()
     .int()
@@ -113,11 +111,48 @@ const relationFields = {
   from_entity: z.string().min(1).describe("Source entity id (UUID)."),
   to_entity: z.string().min(1).describe("Target entity id (UUID)."),
   confidence: z.number().min(0).max(1).optional().describe("0..1. Defaults to certain."),
-  valid_from_unix_nanos: z.number().int().nonnegative().optional(),
-  valid_to_unix_nanos: z.number().int().nonnegative().optional(),
-  session_id: z.number().int().nonnegative().optional(),
+  /*
+   * THE SAME THREE CONCEPTS THE STATEMENT FIELDS ABOVE ALREADY EXPLAIN, and
+   * for a while these three carried no description at all — the relation path
+   * was added later and did not inherit that care. An undescribed field is
+   * not a field an agent leaves alone; it is one it guesses at, and the
+   * guesses here are all silent. A validity window in the wrong epoch stores
+   * cleanly and makes the edge invisible to every time-bounded query.
+   */
+  valid_from_unix_nanos: unixNanos
+    .optional()
+    .describe(
+      "When the edge starts being true IN THE WORLD — object time, not when " +
+        "you are recording it. ISO-8601 (`2026-03-01T00:00:00Z`) or unix " +
+        "nanoseconds. Omitted = now.",
+    ),
+  valid_to_unix_nanos: unixNanos
+    .optional()
+    .describe(
+      "When it stops being true in the world. ISO-8601 or unix nanoseconds. " +
+        "Omitted = still valid. Set this to end an edge that is simply over; " +
+        "use supersede_relation when it was REPLACED by a different one.",
+    ),
+  session_id: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe(
+      "Attribute this edge to a session created with create_session. " +
+        "Grouping only — a session is NOT an isolation boundary, and omitting " +
+        "it files the edge under session 0, the default. Leave it unset unless " +
+        "a caller asked for the write to be attributed.",
+    ),
   evidence: z.array(z.string()).optional().describe("Memory ids this edge rests on."),
-  properties: z.string().optional().describe("Opaque property blob, lowercase hex."),
+  properties: z
+    .string()
+    .optional()
+    .describe(
+      "Opaque bytes the server stores and never interprets, hex-encoded " +
+        "lowercase — NOT a JSON object. There is nothing useful to put here " +
+        "unless you were handed the bytes; omit it.",
+    ),
 };
 
 /**
@@ -163,13 +198,70 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
         "workspace's memories. Use to audit what Brain believes, not to answer " +
         "a question.",
       inputSchema: {
-        limit: z.number().int().min(1).max(200).optional().describe("Page size."),
-        cursor: z.string().optional().describe("Opaque cursor from a previous page."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Page size, 1-1000."),
+        cursor: cursor.optional(),
+        subject: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Subject entity id (UUID) — every claim about one thing. Resolve " +
+              "the name with `resolve_entity` first.",
+          ),
+        predicate: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Only claims using this predicate, e.g. `brain:reports_to`."),
+        kind: z
+          .enum(["fact", "preference", "event", "attribute", "relation", "directive"])
+          .optional()
+          .describe("Only claims of this kind."),
+        min_confidence: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .describe("Drop claims the extractor was less sure of than this."),
+        only_current: z
+          .boolean()
+          .optional()
+          .describe(
+            "Only claims nothing has superseded. Defaults to TRUE — pass " +
+              "false to see the history alongside the current answer.",
+          ),
+        include_tombstoned: includeTombstoned.optional(),
       },
     },
-    async ({ limit, cursor }) => {
+    async ({
+      limit,
+      cursor,
+      subject,
+      predicate,
+      kind,
+      min_confidence,
+      only_current,
+      include_tombstoned,
+    }) => {
       try {
-        return ok(await backend.listStatements({ limit, cursor }));
+        return ok(
+          await backend.listStatements({
+            limit,
+            cursor,
+            subject,
+            predicate,
+            kind,
+            min_confidence,
+            only_current,
+            include_tombstoned,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -187,11 +279,18 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       description: "One statement by id, with the memory it came from.",
       inputSchema: {
         statement_id: z.string().min(1).describe("The statement id."),
+        follow_supersession: z
+          .boolean()
+          .optional()
+          .describe(
+            "Follow the chain to whatever currently replaces this claim, " +
+              "rather than returning the superseded version you asked for.",
+          ),
       },
     },
-    async ({ statement_id }) => {
+    async ({ statement_id, follow_supersession }) => {
       try {
-        return ok(await backend.getStatement(statement_id));
+        return ok(await backend.getStatement(statement_id, follow_supersession));
       } catch (err) {
         return fail(err);
       }
@@ -209,11 +308,18 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       description: "One relation by id, with its endpoints and type.",
       inputSchema: {
         relation_id: z.string().min(1).describe("The relation id."),
+        follow_supersession: z
+          .boolean()
+          .optional()
+          .describe(
+            "Follow the chain to whatever currently replaces this relation, " +
+              "rather than returning the superseded version you asked for.",
+          ),
       },
     },
-    async ({ relation_id }) => {
+    async ({ relation_id, follow_supersession }) => {
       try {
-        return ok(await backend.getRelation(relation_id));
+        return ok(await backend.getRelation(relation_id, follow_supersession));
       } catch (err) {
         return fail(err);
       }
@@ -236,11 +342,26 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
         "apart.",
       inputSchema: {
         statement_id: z.string().min(1).describe("Any statement in the chain."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Page size, 1-1000."),
+        cursor: cursor.optional(),
+        include_tombstoned: includeTombstoned.optional(),
       },
     },
-    async ({ statement_id }) => {
+    async ({ statement_id, limit, cursor, include_tombstoned }) => {
       try {
-        return ok(await backend.statementHistory(statement_id));
+        return ok(
+          await backend.statementHistory(statement_id, {
+            limit,
+            cursor,
+            include_tombstoned,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -431,16 +552,24 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       },
       title: "Delete relation",
       description:
-        "Tombstone a typed edge. Traversals stop crossing it. If the edge is " +
-        "merely out of date, supersede_relation keeps the history.",
+        "Tombstone a typed edge BETWEEN ENTITIES. Traversals stop crossing " +
+        "it. If the edge is merely out of date, supersede_relation keeps the " +
+        "history; to remove an untyped edge between two MEMORIES, use " +
+        "`unlink`.",
       inputSchema: {
         relation_id: z.string().min(1).describe("The edge to tombstone."),
-        reason: z.string().optional().describe("Why. Kept on the record."),
+        reason: retireReason,
+        message: z.string().optional().describe("A human note kept alongside it."),
       },
     },
-    async ({ relation_id, reason }) => {
+    async ({ relation_id, reason, message }) => {
       try {
-        return ok(await backend.deleteRelation(relation_id, reason));
+        return ok(
+          await backend.deleteRelation(relation_id, {
+            reason: reasonByte(reason),
+            message,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }

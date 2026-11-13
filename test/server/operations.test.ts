@@ -34,7 +34,14 @@ beforeAll(async () => {
       return;
     }
     res.end(
-      JSON.stringify({ ok: true, memory_id: "42", answer_kind: "none", memories: [] }),
+      JSON.stringify({
+        ok: true,
+        memory_id: "42",
+        answer_kind: "none",
+        memories: [],
+        // `delete_space` confirms against whoami's space_id before deleting.
+        space_id: "space-under-test",
+      }),
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -52,7 +59,9 @@ async function connectedClient(): Promise<Client> {
     backendUrl: baseUrl,
     requestTimeoutMs: 5000,
   } as Config;
-  const mcp = buildServer(new BrainBackend(cfg, "brain_test_key"));
+  const mcp = buildServer(new BrainBackend(cfg, "brain_test_key"), {
+    readsLocalEnvironment: true,
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await mcp.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });
@@ -61,6 +70,15 @@ async function connectedClient(): Promise<Client> {
 }
 
 /** Minimal valid arguments for every registered tool. */
+/**
+ * Stands in for an environment variable holding a provider key.
+ *
+ * The key tools take a variable's NAME and read it in the handler, so a test
+ * passing a literal key would exercise the one thing the design prevents.
+ */
+const KEY_ENV = "BRAIN_MCP_TEST_PROVIDER_KEY";
+process.env[KEY_ENV] = "sk-test-not-a-real-key";
+
 const CALLS: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ["remember", { content: "Ada likes dark roast" }],
   ["recall", { query: "what does Ada like?" }],
@@ -131,6 +149,7 @@ const CALLS: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ],
   ["delete_relation", { relation_id: "r-1" }],
   ["list_schema_versions", {}],
+  ["list_entity_types", {}],
   ["list_extractors", {}],
   ["drop_schema_type", { kind: "predicate", name: "prefers" }],
   ["explain_query", { text: "what does Ada like?" }],
@@ -140,7 +159,23 @@ const CALLS: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ["list_sessions", {}],
   ["delete_session", { session_id: 7 }],
   ["list_spaces", {}],
+  ["delete_space", { confirm_space_id: "space-under-test" }],
   ["verify_llm_credential", {}],
+  ["create_space", {}],
+  ["replace_schema", { schema_document: "namespace acme", force_drop_existing: false }],
+  [
+    "encode_vector",
+    {
+      text: "x",
+      vector: [0.1, 0.2],
+      model_fingerprint: "0123456789abcdef0123456789abcdef",
+    },
+  ],
+  ["subscribe_events", { max_events: 1, wait_ms: 200 }],
+  ["delete_llm_credential", {}],
+  // The key tools read KEY_ENV out of the process; see the note on it.
+  ["put_llm_credential", { provider: "openai", model: "m", api_key_env: KEY_ENV }],
+  ["test_llm_credential", { provider: "openai", model: "m", api_key_env: KEY_ENV }],
 ];
 
 describe("brain-mcp every operation", () => {

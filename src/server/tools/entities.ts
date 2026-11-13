@@ -9,6 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
 import { fail, ok } from "../result.js";
+import { cursor, includeTombstoned } from "../schema.js";
 
 export function registerEntitiesTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
@@ -30,11 +31,46 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
       inputSchema: {
         entity_type_id: z.number().int().min(1).describe("Declared entity type id."),
         canonical_name: z.string().min(1).describe("Canonical name for the entity."),
+        aliases: z
+          .array(z.string().min(1))
+          .optional()
+          .describe(
+            "Other surface forms that mean this same thing, so `resolve_entity` " +
+              "finds it by any of them. Supplying them at creation avoids the " +
+              "duplicate that gets created later under the other name.",
+          ),
       },
     },
-    async ({ entity_type_id, canonical_name }) => {
+    async ({ entity_type_id, canonical_name, aliases }) => {
       try {
-        return ok(await backend.createEntity(entity_type_id, canonical_name));
+        return ok(await backend.createEntity(entity_type_id, canonical_name, aliases));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+  server.registerTool(
+    "list_entity_types",
+    {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+      title: "List entity types",
+      description:
+        "The entity types this workspace can use, each with the numeric " +
+        "`entity_type_id` that `create_entity` and `list_entities` require. " +
+        "Read this FIRST when you have a type name rather than a number: a " +
+        "recalled memory reports a type as `namespace:Name`, and nothing " +
+        "else maps that back to the id. Covers the built-ins, the types the " +
+        "workspace declared, and the ones extraction coined — `declared` " +
+        "tells them apart.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return ok(await backend.listEntityTypes());
       } catch (err) {
         return fail(err);
       }
@@ -54,13 +90,59 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
         "is refused rather than silently paged.",
       inputSchema: {
         entity_type_id: z.number().int().min(1).describe("Entity type to list."),
-        limit: z.number().int().min(1).max(200).optional().describe("Page size."),
-        cursor: z.string().optional().describe("Opaque cursor from a previous page."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Page size, 1-1000."),
+        cursor: cursor.optional(),
+        prefix: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Only entities whose canonical name starts with this."),
+        mention_count_min: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Only entities mentioned at least this many times — the cheap way " +
+              "to skip one-off extractions and see what the workspace is " +
+              "actually about.",
+          ),
+        include_tombstoned: includeTombstoned.optional(),
+        include_merged: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include entities that were merged away into a survivor. Default " +
+              "false. Useful when tracing where a duplicate went.",
+          ),
       },
     },
-    async ({ entity_type_id, limit, cursor }) => {
+    async ({
+      entity_type_id,
+      limit,
+      cursor,
+      prefix,
+      mention_count_min,
+      include_tombstoned,
+      include_merged,
+    }) => {
       try {
-        return ok(await backend.listEntities(entity_type_id, { limit, cursor }));
+        return ok(
+          await backend.listEntities(entity_type_id, {
+            limit,
+            cursor,
+            prefix,
+            mention_count_min,
+            include_tombstoned,
+            include_merged,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -83,11 +165,43 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
         'service") before asserting anything about it.',
       inputSchema: {
         candidate_name: z.string().min(1).describe("The name or mention to resolve."),
+        resolution_context: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Free text that disambiguates WHICH one is meant when the name is " +
+              'shared — "the Priya on the billing team".',
+          ),
+        type_hint: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Resolve only within this entity type. Omitted resolves across " +
+              "every declared type.",
+          ),
+        allow_create: z
+          .boolean()
+          .optional()
+          .describe(
+            "Mint the entity when nothing matches. Default false — resolve is " +
+              "a read. Prefer leaving this off and calling `create_entity` " +
+              "deliberately, so an unintended near-miss does not silently " +
+              "become a second entity for the same thing.",
+          ),
       },
     },
-    async ({ candidate_name }) => {
+    async ({ candidate_name, resolution_context, type_hint, allow_create }) => {
       try {
-        return ok(await backend.resolveEntity(candidate_name));
+        return ok(
+          await backend.resolveEntity(candidate_name, {
+            resolution_context,
+            type_hint,
+            allow_create,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -132,13 +246,58 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
         "`entity_relations`.",
       inputSchema: {
         entity_id: z.string().min(1).describe("Entity to start from."),
-        depth: z.number().int().min(1).max(5).optional().describe("Hops to walk."),
-        limit: z.number().int().min(1).max(200).optional().describe("Cap on results."),
+        direction: z
+          .enum(["outgoing", "incoming", "both"])
+          .optional()
+          .describe(
+            "`outgoing` (default) follows edges this entity is the source of; " +
+              "`incoming` follows edges pointing at it; `both` walks either way.",
+          ),
+        relation_types: z
+          .array(z.string().min(1))
+          .optional()
+          .describe(
+            "Only follow these relation types. Omitted follows every type — " +
+              "narrow it when one kind of edge dominates the neighbourhood.",
+          ),
+        max_depth: z
+          .number()
+          .int()
+          .min(1)
+          .max(5)
+          .optional()
+          .describe("Hops to walk. Default 3."),
+        max_nodes: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Cap on nodes visited. Default 100."),
+        include_superseded: z
+          .boolean()
+          .optional()
+          .describe("Also follow relations that have been superseded. Default false."),
       },
     },
-    async ({ entity_id, depth, limit }) => {
+    async ({
+      entity_id,
+      direction,
+      relation_types,
+      max_depth,
+      max_nodes,
+      include_superseded,
+    }) => {
       try {
-        return ok(await backend.traverseEntity(entity_id, { depth, limit }));
+        return ok(
+          await backend.traverseEntity(entity_id, {
+            direction,
+            relation_types,
+            max_depth,
+            max_nodes,
+            include_superseded,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -156,13 +315,53 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
       description: "The relations attached to one entity, without walking further out.",
       inputSchema: {
         entity_id: z.string().min(1).describe("The entity id."),
-        limit: z.number().int().min(1).max(200).optional().describe("Page size."),
-        cursor: z.string().optional().describe("Opaque cursor from a previous page."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(1000)
+          .optional()
+          .describe("Page size, 1-1000."),
+        cursor: cursor.optional(),
+        direction: z
+          .enum(["from", "to"])
+          .optional()
+          .describe(
+            "`from` (default) returns edges where this entity is the source; " +
+              "`to` returns edges pointing at it.",
+          ),
+        relation_type: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Only relations of this type. Omitted returns every type."),
+        include_superseded: z
+          .boolean()
+          .optional()
+          .describe("Include relations a later one replaced. Default false."),
+        include_tombstoned: includeTombstoned.optional(),
       },
     },
-    async ({ entity_id, limit, cursor }) => {
+    async ({
+      entity_id,
+      limit,
+      cursor,
+      direction,
+      relation_type,
+      include_superseded,
+      include_tombstoned,
+    }) => {
       try {
-        return ok(await backend.entityRelations(entity_id, { limit, cursor }));
+        return ok(
+          await backend.entityRelations(entity_id, {
+            limit,
+            cursor,
+            direction,
+            relation_type,
+            include_superseded,
+            include_tombstoned,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }

@@ -23,11 +23,27 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
       description:
         "The entity and relation types declared for this workspace. Read this " +
         "before creating entities — `entity_type_id` comes from here.",
-      inputSchema: {},
+      inputSchema: {
+        namespace: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Namespace to read. Defaults to the caller's own."),
+        version: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            "Read a specific past version instead of the active one — pair " +
+              "with `list_schema_versions` to see what a declaration looked " +
+              "like before a change.",
+          ),
+      },
     },
-    async () => {
+    async ({ namespace, version }) => {
       try {
-        return ok(await backend.getSchema());
+        return ok(await backend.getSchema({ namespace, version }));
       } catch (err) {
         return fail(err);
       }
@@ -60,11 +76,21 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
               "The `namespace` line must name this workspace's own namespace. " +
               "Call get_schema first to see what is already declared.",
           ),
+        scope: z
+          .enum(["namespace", "space"])
+          .optional()
+          .describe(
+            "Where the declaration lives: `namespace` (default) is the " +
+              "tenant's base, which every space resolves; `space` is an " +
+              "overlay only the caller's own space sees. Not inferred from " +
+              "the current space on purpose — that would quietly make every " +
+              "ordinary declaration invisible to the rest of the tenant.",
+          ),
       },
     },
-    async ({ schema_document }) => {
+    async ({ schema_document, scope }) => {
       try {
-        return ok(await backend.validateSchema(schema_document));
+        return ok(await backend.validateSchema(schema_document, scope));
       } catch (err) {
         return fail(err);
       }
@@ -98,11 +124,38 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
               "The `namespace` line must name this workspace's own namespace. " +
               "Call get_schema first to see what is already declared.",
           ),
+        dry_run: z
+          .boolean()
+          .optional()
+          .describe(
+            "Parse, validate and report what WOULD change without committing. " +
+              "`validate_schema` is the same check on a document you have not " +
+              "decided to publish yet.",
+          ),
+        allow_breaking: z
+          .boolean()
+          .optional()
+          .describe(
+            "Consent to a change that is not backward compatible. Without it " +
+              "such a document is refused rather than applied.",
+          ),
+        scope: z
+          .enum(["namespace", "space"])
+          .optional()
+          .describe(
+            "Where the declaration lives: `namespace` (default) is the " +
+              "tenant's base, which every space resolves; `space` is an " +
+              "overlay only the caller's own space sees. Not inferred from " +
+              "the current space on purpose — that would quietly make every " +
+              "ordinary declaration invisible to the rest of the tenant.",
+          ),
       },
     },
-    async ({ schema_document }) => {
+    async ({ schema_document, dry_run, allow_breaking, scope }) => {
       try {
-        return ok(await backend.uploadSchema(schema_document));
+        return ok(
+          await backend.uploadSchema(schema_document, { dry_run, allow_breaking, scope }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -186,11 +239,80 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
           .boolean()
           .optional()
           .describe("Consent to orphan live rows that still use this type."),
+        scope: z
+          .enum(["namespace", "space"])
+          .optional()
+          .describe(
+            "Where the declaration lives: `namespace` (default) is the " +
+              "tenant's base, which every space resolves; `space` is an " +
+              "overlay only the caller's own space sees. Not inferred from " +
+              "the current space on purpose — that would quietly make every " +
+              "ordinary declaration invisible to the rest of the tenant.",
+          ),
       },
     },
-    async ({ kind, name, force }) => {
+    async ({ kind, name, force, scope }) => {
       try {
-        return ok(await backend.dropSchemaType(kind, name, force));
+        return ok(await backend.dropSchemaType(kind, name, { force, scope }));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "replace_schema",
+    {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
+      title: "Replace schema",
+      description:
+        "Replace the whole schema document, instead of merging into it. " +
+        "DIFFERENT FROM `upload_schema` IN ONE WAY THAT MATTERS: upload is " +
+        "additive, so the worst it can do is declare something new, while " +
+        "this removes any declaration the new document leaves out — and the " +
+        "rows bound to a dropped declaration go with it. Reach for " +
+        "`upload_schema` to add, `drop_schema_type` to remove exactly one " +
+        "thing, and this only to reset a schema wholesale against a document " +
+        "you already have. Run it with `force_drop_existing: false` first: " +
+        "that refuses rather than drops, which tells you what the true " +
+        "setting would destroy.",
+      inputSchema: {
+        schema_document: z
+          .string()
+          .min(1)
+          .describe(
+            "The complete replacement document in Brain's schema DSL — NOT " +
+              "JSON, and NOT a patch. Anything the active schema declares " +
+              "and this document omits is a removal.",
+          ),
+        force_drop_existing: z
+          .boolean()
+          .describe(
+            "REQUIRED, with no default, because the destructive choice must " +
+              "not be made by leaving a field out. `false` refuses the " +
+              "replacement if it would drop anything — run that first to see " +
+              "what is at stake. `true` consents to dropping those " +
+              "declarations and the rows that depend on them.",
+          ),
+        scope: z
+          .enum(["namespace", "space"])
+          .optional()
+          .describe(
+            "Where the declaration lives: `namespace` (default) is the " +
+              "tenant's base, which every space resolves; `space` is an " +
+              "overlay only the caller's own space sees.",
+          ),
+      },
+    },
+    async ({ schema_document, force_drop_existing, scope }) => {
+      try {
+        return ok(
+          await backend.replaceSchema(schema_document, { force_drop_existing, scope }),
+        );
       } catch (err) {
         return fail(err);
       }

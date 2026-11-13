@@ -165,6 +165,7 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 | `list_memories` | `limit?`, `cursor?` | Page through what is stored, newest first. Use when you need to see what exists rather than answer a question — recall is for questions, this is for inventory. |
 | `inspect_memory` | `memory_id` | Everything behind one memory: the typed facts extracted from it, its provenance, and how it scored. Use when an answer looks wrong and you need to see why that memory was or was not used. |
 | `materialize_directives` | `top_k?`, `min_confidence?`, `categories?` | Render this workspace's learned standing instructions into a system-prompt block, with the statement ids behind each line. Call it once at the start of a session rather than recalling directives one at a time. |
+| `encode_vector` | `text`, `vector`, `model_fingerprint`, `session?`, `kind?`, `salience_hint?`, `deduplicate?` | Store a memory whose embedding you already computed. **Almost certainly not what you want** — `remember` embeds with the model the workspace was indexed under. This is for a program driving the server: a bulk import, or a migration off another store. A vector from a different embedder is refused rather than stored as noise. |
 
 **Reasoning** — Ask Brain to plan or answer over what it knows.
 
@@ -221,8 +222,10 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 | `validate_schema` | `schema_document` | Check a schema document without storing it. Use before upload_schema so a malformed document is caught before it changes anything. |
 | `upload_schema` | `schema_document` | Merge new declarations into the workspace schema. Additive: it cannot drop a declaration, and changing an existing one is a conflict. Replacing a schema destructively is not available here. |
 | `list_schema_versions` | `limit?`, `cursor?` | The schema's version history, as opposed to `get_schema`'s one current document. Use to see when a declaration appeared. |
+| `list_entity_types` | — | The entity types this workspace can use, each with the numeric `entity_type_id` that `create_entity` and `list_entities` require. Read it when you have a `namespace:Name` and need the id. |
 | `list_extractors` | — | What will read a new memory and what it is allowed to produce. Read-only: extraction is always on. |
-| `drop_schema_type` | `kind`, `name`, `force?` | Remove one declared `predicate` or `relation_type` — the only two droppable kinds. `force` is not a confirmation flag: it consents specifically to orphaning live rows. |
+| `drop_schema_type` | `kind`, `name`, `force?`, `scope?` | Remove one declared `predicate` or `relation_type` — the only two droppable kinds. `force` is not a confirmation flag: it consents specifically to orphaning live rows. |
+| `replace_schema` | `schema_document`, `force_drop_existing`, `scope?` | Replace the whole document instead of merging. Anything the new document omits is a removal, and the rows bound to a dropped declaration go with it. `force_drop_existing` is required with no default; run it `false` first to see what would go. |
 
 **Query** — What Brain would do, and what it did.
 
@@ -239,6 +242,9 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 | `list_sessions` | `limit?` | The sessions in this workspace. |
 | `delete_session` | `session_id`, `hard?` | Retire a session. Soft by default, which leaves its memories in place. |
 | `list_spaces` | `limit?` | The spaces this credential can see. `whoami` says which one you write to. |
+| `create_space` | `metadata?` | Provision **this caller's** space and report its stats. Takes no name and creates no other space — which space you are in is decided by the key you connect with. Idempotent: `created: false` means it already existed. A space is an isolation boundary, unlike a session. |
+| `delete_space` | `confirm_space_id` | Erase **this caller's** whole workspace — every memory, and the typed graph derived from it. No soft mode and nothing restores it. `confirm_space_id` is required and must equal the `space_id` `whoami` reports; a value that does not match is refused and deletes nothing. |
+| `subscribe_events` | `from_lsn?`, `include_history?`, `max_events?`, `wait_ms?`, `sessions?`, `memories?` | Read what changed since a point in the feed. Returns a **bounded slice and closes** — it does not stream. Pass the returned `last_lsn` back as `from_lsn` to continue without gaps. An empty result means nothing happened in the window. |
 
 **Identity** — What this request runs as, and what the deployment can do.
 
@@ -248,33 +254,51 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 | `capabilities` | — | What this deployment supports — limits, enabled extractor tiers, protocol version. Use to check a limit before hitting it. |
 | `llm_credential_status` | — | Whether this workspace has an LLM provider key, and which provider and model it is for. Returns a display fingerprint, never the key. Use to confirm the cause when a write is refused for a missing key. |
 | `verify_llm_credential` | — | Re-check the stored key by asking the provider. Takes nothing and sends no secret. A key that worked at registration can be revoked later, and without this the first sign is an opaque upstream failure on a write. |
-### Deliberately not exposed
+| `put_llm_credential` | `provider`, `model`, `api_key_env` | Install this workspace's provider key, so writes can be extracted. Takes the **name of an environment variable**, never a key — the handler reads it, so the secret never enters a tool argument. Verified with the provider before it is stored. **stdio only.** |
+| `test_llm_credential` | `provider`, `model`, `api_key_env` | Probe a key against the provider without storing it or touching the registered one. Same env-var rule as above. **stdio only.** |
+| `delete_llm_credential` | — | Revoke the provider key. **Every subsequent write is refused** until one is registered again. Incident response, not cleanup. **stdio only.** |
+### How the hazardous routes are shaped
 
-Eight tenant routes have no tool, grouped below by the reason. The line is not
-"is it a write" — entity
-merges, statement supersessions and schema drops are all writes and all tools,
-because each is recoverable, scoped to one record, or both. What stays out is
-what a confused or steered agent could use to leak a secret or lose something
-unrecoverably:
+The line is not "is it a write" — entity merges, statement supersessions and
+schema drops are all writes and all tools, because each is recoverable, scoped
+to one record, or both. What matters is whether a confused or steered agent
+could leak a secret or lose something unrecoverably. Four routes that once had
+no tool now have one, because each found a shape that keeps its hazard out of
+reach:
 
-- `PUT` / `DELETE /v1/llm-credential`, and `POST /v1/llm-credential/test` —
-  all three put a **raw provider key in a request body**, which in a tool call
-  means a transcript and a log. Deleting one stops every write in the
-  workspace. `llm_credential_status` and `verify_llm_credential` cover the read
-  side without carrying a secret. Keys are managed in the dashboard.
-- `PUT /v1/schema` — destructive whole-document replacement. `upload_schema`
-  merges, so the worst an agent can do is additive; `drop_schema_type` removes
-  one named declaration and says what `force` actually consents to.
-- `POST` / `DELETE /v1/spaces` — no space verb takes a path parameter, because
-  all three act on the caller's **own** space. A delete is not "remove a space"
-  but "erase this workspace", from one tool call, with no id to get wrong.
-- `POST /v1/memories/vector` — takes a caller-computed embedding. An agent has
-  none to supply.
-- `GET /v1/subscribe` — Server-Sent Events. MCP tools are request/response, and
-  no tool shape here would describe what it actually does.
+- **`PUT` / `POST /v1/llm-credential[/test]`** take a raw provider key. The
+  tools take the **name of an environment variable** instead and read it in the
+  handler, so the key never occupies a tool argument — where it would be
+  written into the model's context and into every transcript and log of the
+  session, and stay valid there. They are registered **on stdio only**: over
+  HTTP the process environment belongs to whoever runs the deployment, not to
+  the caller, so the same argument would read someone else's secret.
+  `DELETE` carries no secret and is a plain tool, marked destructive because
+  revoking stops every write.
+- **`PUT /v1/schema`** replaces rather than merges, and `force_drop_existing`
+  takes the rows bound to a dropped declaration with it. The flag is
+  **required with no default**, so the destructive choice cannot be made by
+  omission, and running it `false` first reports what would go.
+- **`POST /v1/memories/vector`** takes a caller-computed embedding, which an
+  agent cannot produce. The tool exists for a program driving this server; its
+  description sends an agent to `remember`.
+- **`GET /v1/subscribe`** is Server-Sent Events, which request/response cannot
+  represent. `subscribe_events` drains a **bounded** slice — to a deadline and
+  an event count — and returns the resume LSN, so following the feed is a loop
+  the caller drives rather than a tool that hangs.
 
-None of these is reachable from `BrainBackend` either: a method with no caller
-is a destructive surface with no purpose, and three of them used to sit there.
+**Every route has a tool.** The one that needed care is `DELETE /v1/spaces`:
+it takes no path parameter, because every space verb acts on the caller's
+*own* space. So it is "erase this workspace" from a single call, with no id in
+the request that could fail to match and nothing that undoes it.
+
+`delete_space` supplies the missing id. `confirm_space_id` is required, has no
+default, and is checked against the space the credential actually resolves to
+— read it from `whoami` immediately before the call and pass it through
+unchanged. A caller that is in a different workspace than it believes gets a
+refusal and loses nothing, which is the failure this guard exists for. It is
+the only tool that reads before it writes, and the extra `whoami` is the price
+of that check.
 
 ## Identity
 

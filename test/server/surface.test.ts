@@ -15,7 +15,7 @@ const testConfig: Config = {
 
 async function connectedClient(): Promise<Client> {
   const backend = new BrainBackend(testConfig, "test-key");
-  const server = buildServer(backend);
+  const server = buildServer(backend, { readsLocalEnvironment: true });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });
@@ -59,12 +59,16 @@ describe("brain-mcp server", () => {
         "create_entity",
         "create_relation",
         "create_session",
+        "create_space",
         "create_statement",
         "delete_entity",
+        "delete_llm_credential",
         "delete_relation",
         "delete_session",
+        "delete_space",
         "delete_statement",
         "drop_schema_type",
+        "encode_vector",
         "entity_relations",
         "explain_query",
         "forget",
@@ -76,6 +80,7 @@ describe("brain-mcp server", () => {
         "inspect_memory",
         "link",
         "list_entities",
+        "list_entity_types",
         "list_extractors",
         "list_memories",
         "list_schema_versions",
@@ -86,15 +91,19 @@ describe("brain-mcp server", () => {
         "materialize_directives",
         "merge_entities",
         "plan",
+        "put_llm_credential",
         "reason",
         "recall",
         "remember",
         "rename_entity",
+        "replace_schema",
         "resolve_entity",
         "retract_statement",
         "statement_history",
+        "subscribe_events",
         "supersede_relation",
         "supersede_statement",
+        "test_llm_credential",
         "trace_query",
         "traverse_entity",
         "unlink",
@@ -114,51 +123,99 @@ describe("brain-mcp server", () => {
    *
    * The line is not "is it a write". Entity merges, statement supersessions
    * and `drop_schema_type` are all writes and all tools, because each is
-   * recoverable, scoped to one record, or both. What stays out is the handful
-   * that a confused or steered agent could use to leak a secret or lose
-   * something unrecoverably:
+   * recoverable, scoped to one record, or both. What matters is whether a
+   * confused or steered agent could leak a secret or lose something
+   * unrecoverably — so the checks below are on those two properties, not on
+   * a list of endpoint names.
    *
-   *   - writing or testing a provider key — both take a RAW key in the body,
-   *     and a secret in a tool call lands in transcripts and logs. Deleting
-   *     one stops every write in the workspace. `verify_llm_credential`
-   *     re-probes the stored key and carries nothing, so it IS a tool.
-   *   - replacing the whole schema document, which discards declarations and
-   *     the rows bound to them. `drop_schema_type` removes exactly one named
-   *     declaration and is a different operation, not a smaller dose.
-   *   - creating or deleting a space. No space verb takes a path parameter —
-   *     all three act on the caller's own space — so a delete is "erase this
-   *     workspace" with no id to get wrong.
-   *
-   * The risk is that someone adds one later for convenience. This test makes
+   * The risk is that someone relaxes one later for convenience. These make
    * that a deliberate act rather than a three-line one.
    */
-  it("does not expose credential writes, schema replace, or space deletion", async () => {
+  it("no tool anywhere accepts a raw provider key", async () => {
+    // The invariant that makes the key tools safe to expose at all: they
+    // take an environment variable's NAME, and the handler reads it. A live
+    // key passed as an argument is written into the model's context and into
+    // every transcript and log of the session, and it stays valid there.
+    //
+    // Checked across EVERY tool rather than the three credential ones,
+    // because the next tool to want a key is the one nobody thinks to check.
     const client = await connectedClient();
     const { tools } = await client.listTools();
-    const names = new Set(tools.map((t) => t.name));
-
-    for (const forbidden of [
-      "put_llm_credential",
-      "set_llm_credential",
-      "delete_llm_credential",
-      "test_llm_credential",
-      "replace_schema",
-      "create_space",
-      "delete_space",
-      "encode_vector",
-      "subscribe",
-    ]) {
-      expect(names.has(forbidden), `${forbidden} must not be a tool`).toBe(false);
-    }
-
-    // And nothing may accept a raw provider key, whatever it is called.
     for (const tool of tools) {
       const props = Object.keys(
         (tool.inputSchema.properties ?? {}) as Record<string, unknown>,
       );
-      expect(props).not.toContain("api_key");
-      expect(props).not.toContain("provider_key");
+      for (const banned of ["api_key", "provider_key", "secret", "token"]) {
+        expect(props, `${tool.name} must not take a raw ${banned}`).not.toContain(banned);
+      }
     }
+    await client.close();
+  });
+
+  /**
+   * `DELETE /v1/spaces` takes no path parameter — every space verb acts on
+   * the caller's OWN space — so it is "erase this workspace" from a single
+   * call, with no id in the request that could fail to match.
+   *
+   * `delete_space` supplies that id itself: `confirm_space_id` is REQUIRED,
+   * has no default, and is checked against the space the credential resolves
+   * to. Making it optional, or letting a default stand in for it, would turn
+   * the one unrecoverable call in this surface back into a single argument-
+   * free step — so what is asserted here is the requirement, not the name.
+   */
+  it("requires the caller to name the workspace it is erasing", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const erase = tools.find((t) => t.name === "delete_space");
+    expect(erase, "delete_space should be registered").toBeDefined();
+    const schema = (erase as { inputSchema: { required?: string[] } }).inputSchema;
+    expect(schema.required ?? []).toContain("confirm_space_id");
+    await client.close();
+  });
+
+  /**
+   * The key tools read an env var out of THIS process. Over HTTP that
+   * process belongs to whoever runs the deployment, not to the caller, so
+   * the same argument would read an operator's secret on a caller's behalf.
+   * They are registered on stdio only, and this keeps it that way.
+   */
+  it("withholds the key tools when the environment is not the caller's", async () => {
+    const server = buildServer(new BrainBackend(testConfig, "test-key"), {
+      readsLocalEnvironment: false,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientTransport);
+
+    const { tools } = await client.listTools();
+    const names = new Set(tools.map((t) => t.name));
+    for (const gated of [
+      "put_llm_credential",
+      "test_llm_credential",
+      "delete_llm_credential",
+    ]) {
+      expect(names.has(gated), `${gated} must be stdio-only`).toBe(false);
+    }
+    // The gate is on the key tools, not on the surface as a whole.
+    expect(names.has("remember")).toBe(true);
+    expect(names.has("llm_credential_status")).toBe(true);
+    await client.close();
+  });
+
+  /**
+   * `replace_schema` can drop declarations and the rows bound to them, so
+   * the destructive choice must be made explicitly rather than by leaving a
+   * field out. `force_drop_existing` is REQUIRED and has no default.
+   */
+  it("makes the destructive schema choice explicit", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const replace = tools.find((t) => t.name === "replace_schema");
+    expect(replace, "replace_schema should be registered").toBeDefined();
+    const required = ((replace as { inputSchema: { required?: string[] } }).inputSchema
+      .required ?? []) as string[];
+    expect(required).toContain("force_drop_existing");
     await client.close();
   });
 

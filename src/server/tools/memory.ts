@@ -9,6 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
 import { fail, ok } from "../result.js";
+import { cursor, includeTombstoned, unixNanos } from "../schema.js";
 
 export function registerMemoryTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
@@ -20,15 +21,36 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         idempotentHint: false,
       },
       title: "Remember",
+      /*
+       * THE STANDING INSTRUCTION LIVES HERE, not only in the skill.
+       *
+       * A skill's body is read only after the agent decides to load it, and
+       * for an ordinary coding turn it usually does not — the one-line
+       * description is all it ever sees. Measured: the same task, run twice
+       * against the same skill, captured the decision once and stored nothing
+       * the other time, and the agent's own account of why was "I'd have
+       * loaded it if you'd used a trigger word".
+       *
+       * A tool description is in context on EVERY turn for every client that
+       * has this server connected. So the behaviour that has to be reliable
+       * belongs in this string, and the skill keeps the judgement that only
+       * matters once somebody is already storing things.
+       */
       description:
-        "Store something a FUTURE session would be worse without: a " +
-        "preference, a decision and its reason, a fact about a person or " +
-        "system. Brain extracts typed facts and supersedes ones that changed " +
-        "— so correcting a fact is another `remember`, never a `forget`. " +
-        "Returns the memory id (a long decimal string, NOT a UUID). Example: " +
-        '"Priya owns the billing service; we chose Postgres over Dynamo for ' +
-        'the join". Do not store secrets, file contents you just read, or a ' +
-        "restatement of the previous message.",
+        "Store something a FUTURE session would be worse without. CALL THIS " +
+        "WITHOUT BEING ASKED whenever one goes past in ordinary work: a " +
+        "decision and WHY, a constraint learned the hard way, a project " +
+        "convention, a rejected alternative and what went wrong, " +
+        'who owns a system. Almost nobody says "remember that" — they say ' +
+        "it once, in passing, and expect you to still know it next week. " +
+        "Store it the moment it goes past, in one self-contained sentence, " +
+        "and do not announce every write. Brain extracts typed facts and " +
+        "supersedes ones that changed — so correcting a fact is another " +
+        "`remember`, never a `forget`. Returns the memory id (a long decimal " +
+        'string, NOT a UUID). Example: "Priya owns the billing service; we ' +
+        'chose Postgres over Dynamo for the join". NEVER store secrets, keys ' +
+        "or tokens, file contents you just read, what the repo already " +
+        "says, or a restatement of the previous message.",
       inputSchema: {
         content: z
           .string()
@@ -43,11 +65,27 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
             "The text to remember (a fact, message, or event). Up to ~256 KB; " +
               "split anything larger into separate memories.",
           ),
+        session: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Session to attribute this write to, so the memory can later be " +
+              "listed or materialised per conversation.",
+          ),
+        occurred_at_unix_nanos: unixNanos
+          .optional()
+          .describe(
+            "When the remembered thing HAPPENED, if that differs from now. " +
+              "Storage time is recorded either way; this is the event time " +
+              'recall orders on. ISO-8601 is accepted: "2026-03-01T00:00:00Z".',
+          ),
       },
     },
-    async ({ content }) => {
+    async ({ content, session, occurred_at_unix_nanos }) => {
       try {
-        return ok(await backend.remember(content));
+        return ok(await backend.remember(content, { session, occurred_at_unix_nanos }));
       } catch (err) {
         return fail(err);
       }
@@ -81,11 +119,56 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
           .max(1000)
           .optional()
           .describe("Optional cap on the number of memories returned."),
+        subject: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "A subject's NAME — not an entity id. Brain resolves it " +
+              'server-side across every type ("Priya Nair", "the billing ' +
+              'service"). Left out, Brain mines subjects from the cue ' +
+              "itself; naming one ADDS a grounded candidate rather than " +
+              "filtering the results, so use it when the cue is vague about " +
+              "who it is asking about.",
+          ),
+        scope: z
+          .enum(["space", "namespace"])
+          .optional()
+          .describe(
+            "`space` (default) searches the caller's own space; `namespace` " +
+              "fans out across every space in the namespace and merges.",
+          ),
+        include_graph: z
+          .boolean()
+          .optional()
+          .describe(
+            "Return what each hit is connected to — its entities, statements " +
+              "and relations. Use this when the answer depends on how things " +
+              "relate, not just on the text.",
+          ),
+        include_trace: z
+          .boolean()
+          .optional()
+          .describe(
+            "Return the read-pipeline trace: which retriever lanes ran, what " +
+              "each contributed, and where the latency went. For diagnosing " +
+              "ONE bad answer — the trace reports every candidate considered, " +
+              "so it is large (~100 KB over a few hundred memories) and its " +
+              "size does not follow `max_results`.",
+          ),
       },
     },
-    async ({ query, max_results }) => {
+    async ({ query, max_results, subject, scope, include_graph, include_trace }) => {
       try {
-        return ok(await backend.recall(query, max_results));
+        return ok(
+          await backend.recall(query, {
+            max_results,
+            subject,
+            scope,
+            include_graph,
+            include_trace,
+          }),
+        );
       } catch (err) {
         return fail(err);
       }
@@ -147,12 +230,17 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         // and were refused by the server with `limit must be in 1..=100` —
         // the schema promising a page size the backend will not serve.
         limit: z.number().int().min(1).max(100).optional().describe("Page size, 1-100."),
-        cursor: z.string().optional().describe("Opaque cursor from a previous page."),
+        cursor: cursor.optional(),
+        dir: z
+          .enum(["desc", "asc"])
+          .optional()
+          .describe("`desc` (default) is newest first; `asc` is oldest first."),
+        include_tombstoned: includeTombstoned.optional(),
       },
     },
-    async ({ limit, cursor }) => {
+    async ({ limit, cursor, dir, include_tombstoned }) => {
       try {
-        return ok(await backend.listMemories({ limit, cursor }));
+        return ok(await backend.listMemories({ limit, cursor, dir, include_tombstoned }));
       } catch (err) {
         return fail(err);
       }
@@ -201,6 +289,13 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         "one at a time; it returns the block plus the statement ids it was " +
         "built from, so you can follow any line back to its source.",
       inputSchema: {
+        sessions: z
+          .array(z.number().int().nonnegative())
+          .optional()
+          .describe(
+            "Only draw directives from these sessions. Omitted draws from " +
+              "every session in the workspace.",
+          ),
         top_k: z
           .number()
           .int()
@@ -220,10 +315,107 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
           .describe("Only these directive categories."),
       },
     },
-    async ({ top_k, min_confidence, categories }) => {
+    async ({ sessions, top_k, min_confidence, categories }) => {
       try {
         return ok(
-          await backend.materialiseDirectives({ top_k, min_confidence, categories }),
+          await backend.materialiseDirectives({
+            sessions,
+            top_k,
+            min_confidence,
+            categories,
+          }),
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "encode_vector",
+    {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+      title: "Store a pre-computed embedding",
+      description:
+        "Store a memory whose embedding the CALLER already computed. " +
+        "ALMOST CERTAINLY NOT WHAT YOU WANT: `remember` takes text and lets " +
+        "Brain embed it with the model the rest of the workspace was indexed " +
+        "under. This exists for a program driving this server that holds " +
+        "vectors from its own pipeline — a bulk import, or a migration off " +
+        "another store. A vector from a different embedder than the one " +
+        "named by `model_fingerprint` is refused; if it were accepted it " +
+        "would be stored and then retrieved as noise, which is why the " +
+        "fingerprint is required rather than inferred. `capabilities` " +
+        "reports the dimension this deployment expects.",
+      inputSchema: {
+        text: z
+          .string()
+          .min(1)
+          .describe("The text the vector was computed from. Stored as the content."),
+        vector: z
+          .array(z.number())
+          .min(1)
+          .describe(
+            "The embedding, as plain floats. Its length must equal the " +
+              "deployment's `vector_dim` from `capabilities` — 384 by default.",
+          ),
+        model_fingerprint: z
+          .string()
+          .regex(
+            /^[0-9a-f]{32}$/,
+            "model_fingerprint must be 32 lowercase hex characters (16 bytes)",
+          )
+          .describe(
+            "A 16-byte id for the model that produced the vector, lowercase " +
+              "hex. Brain rejects a vector whose fingerprint does not match " +
+              "the index.",
+          ),
+        session: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe("Session to attribute the write to."),
+        kind: z
+          .number()
+          .int()
+          .min(0)
+          .max(2)
+          .optional()
+          .describe("0 = episodic (default), 1 = semantic, 2 = consolidated."),
+        salience_hint: z
+          .number()
+          .min(0)
+          .max(1)
+          .optional()
+          .describe("A hint only — Brain decides the stored salience."),
+        deduplicate: z
+          .boolean()
+          .optional()
+          .describe("Skip the write when an identical memory already exists."),
+      },
+    },
+    async ({
+      text,
+      vector,
+      model_fingerprint,
+      session,
+      kind,
+      salience_hint,
+      deduplicate,
+    }) => {
+      try {
+        return ok(
+          await backend.encodeVector(text, vector, model_fingerprint, {
+            session,
+            kind,
+            salience_hint,
+            deduplicate,
+          }),
         );
       } catch (err) {
         return fail(err);

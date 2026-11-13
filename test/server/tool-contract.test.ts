@@ -14,7 +14,9 @@ const testConfig: Config = {
 
 /** The tool list is served from the registrations; no backend is reached. */
 async function listTools() {
-  const server = buildServer(new BrainBackend(testConfig, "test-key"));
+  const server = buildServer(new BrainBackend(testConfig, "test-key"), {
+    readsLocalEnvironment: true,
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });

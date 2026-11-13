@@ -131,7 +131,7 @@ export function buildApp(cfg: Config): Express {
       return;
     }
     const backend = new BrainBackend(cfg, credential);
-    const server = buildServer(backend);
+    const server = buildServer(backend, { readsLocalEnvironment: false });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -245,7 +245,9 @@ async function serveStdio(cfg: Config): Promise<void> {
   if (cfg.apiKey === undefined) {
     throw new Error("unreachable: stdio config without a credential");
   }
-  const server = buildServer(new BrainBackend(cfg, cfg.apiKey));
+  const server = buildServer(new BrainBackend(cfg, cfg.apiKey), {
+    readsLocalEnvironment: true,
+  });
   const transport = new StdioServerTransport();
   console.error(`brain-mcp on stdio → backend ${cfg.backendUrl}`);
   await server.connect(transport);
