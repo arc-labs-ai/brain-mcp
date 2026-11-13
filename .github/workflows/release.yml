@@ -35,26 +35,6 @@ on:
     tags:
       - "v*"
 
-  # Called by `release-please.yml` IN THE SAME RUN.
-  #
-  # WHY. Merging the Release PR creates the tag, and the trigger above fires on
-  # it — but only while `RELEASE_PLEASE_TOKEN` is set. Events raised with the
-  # default `GITHUB_TOKEN` do not start workflow runs (GitHub's recursion
-  # guard), and the `secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN`
-  # fallback in that workflow is SILENT — so the day that PAT expires or is
-  # rotated away, tags keep being cut and nothing is ever published again, with
-  # no failure anywhere to say so. A sibling repo lost its first release to
-  # exactly this.
-  #
-  # A job in the same run is not a new event, so the hand-off works with or
-  # without the token, and the token stops being load-bearing.
-  workflow_call:
-    inputs:
-      tag:
-        description: "Tag just created by release-please."
-        required: true
-        type: string
-
   # For a tag that was cut but never published. `ref: inputs.tag || github.ref`
   # means dispatching from `main` runs the CURRENT workflow file against the
   # TAG's source, so a fix here can publish a tag made before the fix existed.

@@ -24,9 +24,10 @@ name: Release Please
 # — npm reads that as an untrusted publish, answers `404 PUT`, and the release
 # goes out from the tag path anyway, so the second attempt can only ever fail.
 #
-# That makes `RELEASE_PLEASE_TOKEN` load-bearing. A tag created with the
-# default `GITHUB_TOKEN` does not trigger another workflow, so the token below
-# must be a real credential or the tag lands and nothing publishes.
+# That makes `RELEASE_PLEASE_TOKEN` load-bearing: a tag created with the
+# default `GITHUB_TOKEN` does not trigger another workflow. The token below
+# therefore has NO fallback — an unset secret fails this workflow, which is
+# the only signal anyone gets before tags start piling up unpublished.
 
 on:
   push:
@@ -55,6 +56,11 @@ jobs:
       - uses: googleapis/release-please-action@v5
         id: release
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          # No fallback to GITHUB_TOKEN, deliberately. Events raised with
+          # the default token do not start workflow runs, so a tag cut with
+          # it is a tag nothing publishes — and a silent fallback makes that
+          # look like a healthy release. An unset secret fails this step
+          # instead, which is the only way anyone finds out in time.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
