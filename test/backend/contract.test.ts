@@ -56,7 +56,9 @@ beforeAll(async () => {
     } else if (path === "/v1/memories" && req.method === "DELETE") {
       res.end(JSON.stringify({ forgotten: true }));
     } else if (path === "/v1/whoami") {
-      res.end(JSON.stringify({ namespace: "acme", bound: true }));
+      // `space_id` is part of the real DTO and `delete_space` confirms
+      // against it, so the stand-in has to carry it.
+      res.end(JSON.stringify({ namespace: "acme", space_id: "s", bound: true }));
     } else {
       // Permissive 200 for the route-table sweep below. The four cases above
       // keep their exact DTOs because those tests assert on the mapped result;
@@ -188,6 +190,27 @@ describe("brain-mcp → /v1/* contract", () => {
     const req = captured.at(-1);
     expect(req?.method).toBe("GET");
     expect(req?.url).toBe("/v1/whoami");
+    await c.close();
+  });
+
+  /**
+   * The guard that makes erasing a workspace safe to expose at all.
+   *
+   * A refusal that still sent the request would be worse than no guard,
+   * because it would read as a refusal. So this asserts the absence of the
+   * DELETE, not just the error — the workspace survives a caller that was
+   * wrong about which one it was in.
+   */
+  it("delete_space refuses a confirmation that names another space, and deletes nothing", async () => {
+    captured.length = 0;
+    const c = await client();
+    const res = await c.callTool({
+      name: "delete_space",
+      arguments: { confirm_space_id: "a-different-space" },
+    });
+    expect(res.isError, "a mismatch must be an error").toBe(true);
+    const sent = captured.map((r) => `${r.method} ${(r.url ?? "").split("?")[0]}`);
+    expect(sent, "it reads whoami to check, and stops there").toEqual(["GET /v1/whoami"]);
     await c.close();
   });
 
@@ -461,6 +484,14 @@ const ROUTES: RouteCase[] = [
     path: "/v1/llm-credential/verify",
   },
   { tool: "whoami", args: {}, method: "GET", path: "/v1/whoami" },
+  // Two requests: the confirmation is read from whoami first, and the route
+  // asserted below is the last one sent — the delete itself.
+  {
+    tool: "delete_space",
+    args: { confirm_space_id: "s" },
+    method: "DELETE",
+    path: "/v1/spaces",
+  },
   {
     tool: "create_space",
     args: {},

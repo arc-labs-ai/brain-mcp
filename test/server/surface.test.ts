@@ -65,6 +65,7 @@ describe("brain-mcp server", () => {
         "delete_llm_credential",
         "delete_relation",
         "delete_session",
+        "delete_space",
         "delete_statement",
         "drop_schema_type",
         "encode_vector",
@@ -154,16 +155,21 @@ describe("brain-mcp server", () => {
   /**
    * `DELETE /v1/spaces` takes no path parameter — every space verb acts on
    * the caller's OWN space — so it is "erase this workspace" from a single
-   * call, with no id that could fail to match and nothing to undo.
-   * `create_space` is a tool; this one stays out.
+   * call, with no id in the request that could fail to match.
+   *
+   * `delete_space` supplies that id itself: `confirm_space_id` is REQUIRED,
+   * has no default, and is checked against the space the credential resolves
+   * to. Making it optional, or letting a default stand in for it, would turn
+   * the one unrecoverable call in this surface back into a single argument-
+   * free step — so what is asserted here is the requirement, not the name.
    */
-  it("does not expose space deletion", async () => {
+  it("requires the caller to name the workspace it is erasing", async () => {
     const client = await connectedClient();
     const { tools } = await client.listTools();
-    const names = new Set(tools.map((t) => t.name));
-    for (const forbidden of ["delete_space", "erase_space", "drop_space"]) {
-      expect(names.has(forbidden), `${forbidden} must not be a tool`).toBe(false);
-    }
+    const erase = tools.find((t) => t.name === "delete_space");
+    expect(erase, "delete_space should be registered").toBeDefined();
+    const schema = (erase as { inputSchema: { required?: string[] } }).inputSchema;
+    expect(schema.required ?? []).toContain("confirm_space_id");
     await client.close();
   });
 

@@ -1,13 +1,16 @@
 /**
  * Sessions and spaces — the containers the memories sit in.
  *
- * Only the non-destructive half of the space verbs is here, and the reason is
- * in the shape of the API rather than in taste: none of `POST`/`GET`/`DELETE
- * /v1/spaces` takes a path parameter, because all three act on the CALLER'S
- * OWN space, which Brain resolves from the credential. `DELETE` is therefore
- * not "remove a space" but "erase this workspace" — one tool call, no id to
- * get wrong, and nothing that undoes it. It has no tool. `list_spaces` does,
- * because reading is not that.
+ * None of `POST`/`GET`/`DELETE /v1/spaces` takes a path parameter, because
+ * all three act on the CALLER'S OWN space, which Brain resolves from the
+ * credential. A delete is therefore not "remove a space" but "erase this
+ * workspace", and the request carries no id that could fail to match.
+ *
+ * `delete_space` supplies that missing id itself: the caller has to name the
+ * space it believes it is erasing, and the name is checked against the one
+ * the credential actually resolves to before anything is deleted. A caller
+ * that is in a different workspace than it thinks gets a refusal instead of
+ * an erasure.
  *
  * Registered onto a server built in `../index.ts`.
  */
@@ -15,7 +18,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
-import { fail, ok } from "../result.js";
+import { fail, ok, refuse } from "../result.js";
 
 export function registerWorkspaceTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
@@ -164,6 +167,67 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
     async ({ metadata }) => {
       try {
         return ok(await backend.createSpace(metadata));
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+  server.registerTool(
+    "delete_space",
+    {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+      },
+      title: "Erase this workspace",
+      description:
+        "Erase THIS caller's whole workspace: every memory in it, and the " +
+        "entities, statements and relations derived from them. There is no " +
+        "soft mode and nothing restores it. It takes no name and cannot " +
+        "reach another space — which space you are in is decided by the key " +
+        "you connect with, the one `whoami` reports. `confirm_space_id` is " +
+        "REQUIRED and must equal that space's id: read it with `whoami` " +
+        "immediately before calling this, and pass it through unchanged. A " +
+        "value that does not match is refused and deletes nothing, which is " +
+        "what protects a caller who believes it is somewhere else. To clear " +
+        "one conversation rather than the workspace use `delete_session`; " +
+        "to drop a single memory use `forget`.",
+      inputSchema: {
+        confirm_space_id: z
+          .string()
+          .min(1)
+          .describe(
+            "The `space_id` from `whoami`, repeated here as the confirmation. " +
+              "It is required with no default, because erasing a workspace " +
+              "must be something the caller stated rather than something it " +
+              "left out, and because the request itself carries no id — this " +
+              "is the only thing standing between a wrong assumption about " +
+              "which space you are in and an unrecoverable delete.",
+          ),
+      },
+    },
+    async ({ confirm_space_id }) => {
+      try {
+        // The confirmation is checked against the space the CREDENTIAL
+        // resolves to, not against anything the caller supplied twice, so it
+        // catches the case the id exists for: a caller acting on the wrong
+        // workspace. This is the one tool that reads before it writes.
+        const identity = await backend.whoami();
+        const actual = typeof identity.space_id === "string" ? identity.space_id : "";
+        if (actual === "") {
+          return refuse(
+            "this backend did not report a space_id for the current credential, so the confirmation cannot be checked and nothing was deleted",
+            "call whoami and check what it returns; a credential with no space is not one this tool can erase",
+          );
+        }
+        if (confirm_space_id.trim() !== actual) {
+          return refuse(
+            `confirm_space_id does not name this workspace: the credential resolves to ${actual}. Nothing was deleted`,
+            "call whoami, pass the space_id it reports, and make sure that is the workspace you meant to erase",
+          );
+        }
+        return ok(await backend.deleteSpace());
       } catch (err) {
         return fail(err);
       }

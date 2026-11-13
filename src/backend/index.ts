@@ -990,11 +990,11 @@ export class BrainBackend {
   // ---------------------------------------------------------------------
   // Sessions and spaces
   //
-  // Only the non-destructive half. `POST`/`DELETE /v1/spaces` are absent on
-  // purpose: neither takes a path parameter, because all three space verbs act
-  // on the CALLER'S OWN space, which Brain resolves from `act_as`. A delete is
-  // therefore not "remove a space" but "erase this workspace", from one tool
-  // call, with no id to get wrong and nothing to undo it.
+  // No space verb takes a path parameter: all three act on the CALLER'S OWN
+  // space, which Brain resolves from the credential. So a delete here is not
+  // "remove a space" but "erase this workspace", and there is no id in the
+  // request that could fail to match. The tool layer supplies one — see
+  // `delete_space` in ../server/tools/workspace.ts.
   // ---------------------------------------------------------------------
 
   /** Provision a session. Idempotent on the client-chosen id. */
@@ -1033,6 +1033,18 @@ export class BrainBackend {
   /** Create a space under the caller's namespace. */
   async createSpace(metadata?: string): Promise<Record<string, unknown>> {
     return this.request("POST", "/v1/spaces", compact({ metadata }));
+  }
+
+  /**
+   * Erase the caller's own workspace: its memories, and the typed graph
+   * derived from them.
+   *
+   * There is no id in the request, so nothing here can distinguish one space
+   * from another — the credential decides which one is erased. Whatever
+   * confirms that intent has to be checked before this is called.
+   */
+  async deleteSpace(): Promise<Record<string, unknown>> {
+    return this.request("DELETE", "/v1/spaces", undefined);
   }
 
   // ---------------------------------------------------------------------

@@ -243,6 +243,7 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 | `delete_session` | `session_id`, `hard?` | Retire a session. Soft by default, which leaves its memories in place. |
 | `list_spaces` | `limit?` | The spaces this credential can see. `whoami` says which one you write to. |
 | `create_space` | `metadata?` | Provision **this caller's** space and report its stats. Takes no name and creates no other space — which space you are in is decided by the key you connect with. Idempotent: `created: false` means it already existed. A space is an isolation boundary, unlike a session. |
+| `delete_space` | `confirm_space_id` | Erase **this caller's** whole workspace — every memory, and the typed graph derived from it. No soft mode and nothing restores it. `confirm_space_id` is required and must equal the `space_id` `whoami` reports; a value that does not match is refused and deletes nothing. |
 | `subscribe_events` | `from_lsn?`, `include_history?`, `max_events?`, `wait_ms?`, `sessions?`, `memories?` | Read what changed since a point in the feed. Returns a **bounded slice and closes** — it does not stream. Pass the returned `last_lsn` back as `from_lsn` to continue without gaps. An empty result means nothing happened in the window. |
 
 **Identity** — What this request runs as, and what the deployment can do.
@@ -286,11 +287,18 @@ reach:
   an event count — and returns the resume LSN, so following the feed is a loop
   the caller drives rather than a tool that hangs.
 
-**One route still has no tool.** `DELETE /v1/spaces` takes no path parameter,
-because every space verb acts on the caller's *own* space: it is "erase this
-workspace" from a single call, with no id that could fail to match and nothing
-to undo. `create_space` is a tool; the delete stays a deliberate act through
-the HTTP API.
+**Every route has a tool.** The one that needed care is `DELETE /v1/spaces`:
+it takes no path parameter, because every space verb acts on the caller's
+*own* space. So it is "erase this workspace" from a single call, with no id in
+the request that could fail to match and nothing that undoes it.
+
+`delete_space` supplies the missing id. `confirm_space_id` is required, has no
+default, and is checked against the space the credential actually resolves to
+— read it from `whoami` immediately before the call and pass it through
+unchanged. A caller that is in a different workspace than it believes gets a
+refusal and loses nothing, which is the failure this guard exists for. It is
+the only tool that reads before it writes, and the extra `whoami` is the price
+of that check.
 
 ## Identity
 

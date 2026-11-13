@@ -34,7 +34,14 @@ beforeAll(async () => {
       return;
     }
     res.end(
-      JSON.stringify({ ok: true, memory_id: "42", answer_kind: "none", memories: [] }),
+      JSON.stringify({
+        ok: true,
+        memory_id: "42",
+        answer_kind: "none",
+        memories: [],
+        // `delete_space` confirms against whoami's space_id before deleting.
+        space_id: "space-under-test",
+      }),
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -152,6 +159,7 @@ const CALLS: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ["list_sessions", {}],
   ["delete_session", { session_id: 7 }],
   ["list_spaces", {}],
+  ["delete_space", { confirm_space_id: "space-under-test" }],
   ["verify_llm_credential", {}],
   ["create_space", {}],
   ["replace_schema", { schema_document: "namespace acme", force_drop_existing: false }],
