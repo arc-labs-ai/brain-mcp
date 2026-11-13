@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/arc-labs-ai/brain-mcp/compare/v0.4.0...v0.4.1) (2026-11-13)
+
+
+### Features
+
+* **mcp:** close the tool surface, fix the bi-temporal fields, and expose delete_space ([#16](https://github.com/arc-labs-ai/brain-mcp/issues/16)) ([a1e1fc3](https://github.com/arc-labs-ai/brain-mcp/commit/a1e1fc35dffe4490d15242f6f5e83e839674e11a))
+
 ## [0.4.0](https://github.com/arc-labs-ai/brain-mcp/compare/v0.3.2...v0.4.0) (2026-11-06)
 
 
