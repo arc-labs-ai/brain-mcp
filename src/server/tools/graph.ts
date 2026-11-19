@@ -11,6 +11,30 @@ import type { BrainBackend } from "../../backend/index.js";
 import { fail, ok } from "../result.js";
 import { cursor, includeTombstoned } from "../schema.js";
 
+const memoryEdgeKinds = [
+  "caused",
+  "followed_by",
+  "derived_from",
+  "similar_to",
+  "contradicts",
+  "supports",
+  "references",
+  "part_of",
+] as const;
+
+const memoryEdgeKind = z.preprocess(
+  (value) => (typeof value === "string" ? value.toLowerCase() : value),
+  z.enum(memoryEdgeKinds),
+);
+
+const memoryEdgeKindDescription =
+  "Bare memory edge kind — never a namespace-qualified name such as `brain:caused`. " +
+  "Choose `caused` when the source caused the target; `followed_by` when the source " +
+  "happened before the target; `derived_from` when the target was consolidated or " +
+  "summarised from the source; `similar_to` for symmetric similarity; `contradicts` " +
+  "for symmetric contradiction; `supports` when the source is evidence for the target; " +
+  "`references` for a citation/link; or `part_of` when the source is part of the target.";
+
 export function registerGraphTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
     "link",
@@ -30,7 +54,7 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
       inputSchema: {
         source: z.string().min(1).describe("Source memory id."),
         target: z.string().min(1).describe("Target memory id."),
-        kind: z.string().min(1).describe("Edge kind, e.g. `caused`."),
+        kind: memoryEdgeKind.describe(memoryEdgeKindDescription),
         weight: z
           .number()
           .min(-1)
@@ -64,7 +88,9 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
       inputSchema: {
         source: z.string().min(1).describe("Source memory id."),
         target: z.string().min(1).describe("Target memory id."),
-        kind: z.string().min(1).describe("Edge kind to remove."),
+        kind: memoryEdgeKind.describe(
+          `Edge kind to remove. ${memoryEdgeKindDescription}`,
+        ),
       },
     },
     async ({ source, target, kind }) => {
@@ -96,7 +122,11 @@ export function registerGraphTools(server: McpServer, backend: BrainBackend): vo
           .min(1)
           .max(500)
           .optional()
-          .describe("Page size, 1-500 (default 200)."),
+          .describe(
+            "Internal scan budget, 1-500 (default 200), not a row count. " +
+              "Size pages by what comes back and follow `next_cursor` rather " +
+              "than trusting `limit`.",
+          ),
         cursor: cursor.optional(),
         include_statements: z
           .boolean()

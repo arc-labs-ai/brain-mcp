@@ -79,15 +79,29 @@ const queryFields = {
     ),
   fusion: z
     .object({
-      k: z.number().int().min(1).optional(),
-      semantic_weight: z.number().optional(),
-      lexical_weight: z.number().optional(),
-      graph_weight: z.number().optional(),
+      k: z
+        .number()
+        .int()
+        .min(1)
+        .describe(
+          "The reciprocal-rank-fusion constant. A larger value flattens the " +
+            "contribution of rank position.",
+        ),
+      semantic_weight: z
+        .number()
+        .describe("Scale the contribution of the semantic retrieval lane."),
+      lexical_weight: z
+        .number()
+        .describe("Scale the contribution of the lexical retrieval lane."),
+      graph_weight: z
+        .number()
+        .describe("Scale the contribution of the graph retrieval lane."),
     })
     .optional()
     .describe(
       "Override the reciprocal-rank-fusion constant and per-lane weights " +
-        "used to merge the lanes.",
+        "used to merge the lanes. This override is all-or-nothing: a partial " +
+        "object is refused, so provide k and all three weights together.",
     ),
 };
 

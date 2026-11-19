@@ -1,0 +1,342 @@
+{
+  "source": "../brain-sdk/contract/http-routes.json",
+  "generated_from": 58,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v1/capabilities"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/entities"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/entities"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/entities/{id}"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/entities/{id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/entities/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/entities/{id}/merge"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/entities/{id}/relations"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/entities/{id}/rename"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/entities/{id}/traverse"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/entities/{id}/unmerge"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/entities/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/entity-types"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/extractors"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/graph"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/links"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/links"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/llm-credential"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/llm-credential"
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/llm-credential"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/llm-credential/test"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/llm-credential/verify"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/memories"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memories"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memories"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memories/{id}/inspect"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memories/vector"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/plan"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/procedural/materialize"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/explain"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/trace"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/reason"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/recall"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/relations"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/relations/{id}"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/relations/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/relations/{id}/supersede"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/schema"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/schema"
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/schema"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/schema/{id}/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/schema/validate"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/schemas"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/sessions"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/sessions"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/sessions/{id}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/spaces"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/spaces"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/spaces"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/statements"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/statements"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/statements/{id}"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/statements/{id}"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/statements/{id}/history"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/statements/{id}/retract"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/statements/{id}/supersede"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/subscribe"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/whoami"
+    }
+  ],
+  "fields": [
+    "aliases",
+    "allow_breaking",
+    "allow_create",
+    "api_key",
+    "as_of_record_time_unix_nanos",
+    "attributes",
+    "budget_wall_time_ms",
+    "candidate_name",
+    "canonical_name",
+    "confidence",
+    "confidence_min",
+    "confidence_threshold",
+    "cursor",
+    "deduplicate",
+    "depth",
+    "dir",
+    "direction",
+    "dry_run",
+    "entity_anchor",
+    "entity_type_id",
+    "event_at_unix_nanos",
+    "evidence",
+    "extractor_id",
+    "follow_supersession",
+    "force",
+    "force_drop_existing",
+    "from_entity",
+    "from_lsn",
+    "fusion",
+    "goal",
+    "hard",
+    "include_graph",
+    "include_history",
+    "include_memories",
+    "include_memory_edges",
+    "include_merged",
+    "include_statements",
+    "include_superseded",
+    "include_tombstoned",
+    "include_trace",
+    "kind",
+    "kinds",
+    "limit",
+    "max_branches",
+    "max_depth",
+    "max_inferences",
+    "max_inflight",
+    "max_nodes",
+    "max_results",
+    "max_steps",
+    "max_wall_time_ms",
+    "memories",
+    "memory_id",
+    "mention_count_min",
+    "merged",
+    "message",
+    "min_confidence",
+    "model",
+    "model_fingerprint",
+    "move_to_alias",
+    "namespace",
+    "new_canonical_name",
+    "object",
+    "observation",
+    "occurred_at_unix_nanos",
+    "only_current",
+    "predicate",
+    "predicates",
+    "prefix",
+    "properties",
+    "provider",
+    "query",
+    "reason",
+    "relation",
+    "relation_type",
+    "relation_types",
+    "resolution_context",
+    "retrievers",
+    "salience_hint",
+    "schema_document",
+    "schema_version",
+    "scope",
+    "session",
+    "session_id",
+    "sessions",
+    "source",
+    "start",
+    "statement",
+    "strategy",
+    "subject",
+    "target",
+    "text",
+    "time_range",
+    "title",
+    "to_entity",
+    "type_hint",
+    "type_id",
+    "valid_from_unix_nanos",
+    "valid_to_unix_nanos",
+    "vector",
+    "version",
+    "weight"
+  ]
+}

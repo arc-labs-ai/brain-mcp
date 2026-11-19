@@ -109,6 +109,52 @@ describe("a real date reaches the backend", () => {
   }
 });
 
+describe("a statement value can carry a real instant", () => {
+  /**
+   * Keep the nested statement-value timestamp on the shared unixNanos path;
+   * otherwise its old safe-integer ceiling rejects every present-day instant.
+   */
+  it("accepts nanoseconds and preserves the backend value", async () => {
+    const res = await call("create_statement", {
+      ...STATEMENT,
+      object: {
+        kind: "value",
+        value: { type: "unix_nanos", value: 1_700_000_000_000_000_000 },
+      },
+    });
+    expect(res.isError, res.text).toBe(false);
+    expect((lastBody.object as { value: { value: number } }).value.value).toBe(
+      1_700_000_000_000_000_000,
+    );
+  });
+
+  it("converts an ISO-8601 instant before sending it to the backend", async () => {
+    const res = await call("create_statement", {
+      ...STATEMENT,
+      object: {
+        kind: "value",
+        value: { type: "unix_nanos", value: "2023-11-14T22:13:20Z" },
+      },
+    });
+    expect(res.isError, res.text).toBe(false);
+    expect((lastBody.object as { value: { value: number } }).value.value).toBe(
+      1_700_000_000_000_000_000,
+    );
+  });
+
+  it("refuses a lossy digit string instead of storing a different instant", async () => {
+    const res = await call("create_statement", {
+      ...STATEMENT,
+      object: {
+        kind: "value",
+        value: { type: "unix_nanos", value: "1700000000123456789" },
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/cannot be represented exactly/);
+  });
+});
+
 describe("ISO-8601, which is the form a model gets right", () => {
   it("is converted to unix nanoseconds on the wire", async () => {
     const res = await call("create_relation", {

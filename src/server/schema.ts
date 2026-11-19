@@ -98,7 +98,7 @@ export const cursor = z
       "filters alongside it — a cursor is bound to the filters that made it.",
   );
 
-/** Include records that have been tombstoned (soft-deleted). */
+/** Tombstone filtering does not surface memories removed by `forget`. */
 export const includeTombstoned = z
   .boolean()
-  .describe("Include tombstoned (soft-deleted) records. Default false.");
+  .describe("Does not reveal memories removed by `forget`; default false.");

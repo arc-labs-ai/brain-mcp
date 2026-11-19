@@ -750,7 +750,7 @@ export class BrainBackend {
     });
   }
 
-  /** Rename an entity, keeping the old name as an alias by default.
+  /** Rename an entity, keeping the old name as an alias.
    *
    *  The default matters: a name an entity was known by is how a later mention
    *  still resolves to it, so dropping it silently breaks resolution for text
@@ -758,11 +758,9 @@ export class BrainBackend {
   async renameEntity(
     entityId: string,
     newCanonicalName: string,
-    moveToAlias?: boolean,
   ): Promise<Record<string, unknown>> {
     return this.request("POST", `/v1/entities/${encodeURIComponent(entityId)}/rename`, {
       new_canonical_name: newCanonicalName,
-      ...(moveToAlias === undefined ? {} : { move_to_alias: moveToAlias }),
     });
   }
 
@@ -1129,6 +1127,9 @@ export class BrainBackend {
    * Ends at whichever comes first: `maxEvents`, `waitMs`, or the server
    * closing. Returning early with nothing is a normal outcome, not an error:
    * a quiet feed has no events to report.
+   * `max_inflight` is deliberately omitted because the drain is bounded by
+   * `maxEvents` and `waitMs` and closes immediately, so there is no slow reader
+   * to pace, and Brain clamps the value anyway.
    */
   async drainEvents(
     opts: {
