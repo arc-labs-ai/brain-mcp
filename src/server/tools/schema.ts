@@ -10,6 +10,25 @@ import { z } from "zod";
 import type { BrainBackend } from "../../backend/index.js";
 import { fail, ok } from "../result.js";
 
+const schemaDocumentDescription =
+  "The schema document, written in Brain's schema DSL — NOT JSON. " +
+  "A JSON document is rejected with `syntax error at 1:1: expected schema`. Example:\n\n" +
+  "namespace acme\n" +
+  "define entity_type Person { attributes {} }\n" +
+  "define entity_type Org { attributes {} }\n" +
+  "define predicate works_at { kind: Fact subject: Entity<Person> object: Entity<Org> }\n" +
+  "define predicate founded_at { kind: Event subject: Entity<Org> object: Value<timestamp> }\n" +
+  "define relation_type reports_into { from: Person to: Org cardinality: many-to-one }\n\n" +
+  "`subject:` is `Entity<Name>` or `Any`; `object:` is `Value<attr_type>`, " +
+  "`Entity<Name>`, `Memory`, `Statement` or `Any`. For a relation type, " +
+  "`from:` and `to:` take bare entity-type identifiers such as `Person`, not `Entity<Person>`. " +
+  "Predicate `kind` values are `Fact`, `Preference`, `Event`, `Attribute`, `Relation`, " +
+  "`Directive` and `Any`; relation types may also take optional `cardinality:`, " +
+  "`symmetric:`, `properties { }` and `description:` fields. " +
+  "Simple `attr_type` values are `text`, `number`, `bool`, `date` and `timestamp`. " +
+  "The `namespace` line must name this workspace's own namespace. " +
+  "Call get_schema first to see what is already declared.";
+
 export function registerSchemaTools(server: McpServer, backend: BrainBackend): void {
   server.registerTool(
     "get_schema",
@@ -21,8 +40,10 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
       },
       title: "Get schema",
       description:
-        "The entity and relation types declared for this workspace. Read this " +
-        "before creating entities — `entity_type_id` comes from here.",
+        "Returns the declared schema document and its version for this workspace. " +
+        "If you need an `entity_type_id`, use `list_entity_types`. A 404 means " +
+        "no schema has been declared yet, which is a normal working state, not a " +
+        "misconfiguration; use `upload_schema` if you want to declare types.",
       inputSchema: {
         namespace: z
           .string()
@@ -62,20 +83,7 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
         "Check a schema document without storing it. Use before upload_schema " +
         "so a malformed document is caught before it changes anything.",
       inputSchema: {
-        schema_document: z
-          .string()
-          .min(1)
-          .describe(
-            "The schema document, written in Brain's schema DSL \u2014 NOT JSON. " +
-              "A JSON document is rejected with `syntax error at 1:1: expected " +
-              "schema`. Example:\n\n" +
-              "namespace acme\n" +
-              "define entity_type Person { attributes {} }\n" +
-              "define entity_type Org { attributes {} }\n" +
-              "define predicate works_at { kind: Fact subject: Entity<Person> object: Entity<Org> }\n\n" +
-              "The `namespace` line must name this workspace's own namespace. " +
-              "Call get_schema first to see what is already declared.",
-          ),
+        schema_document: z.string().min(1).describe(schemaDocumentDescription),
         scope: z
           .enum(["namespace", "space"])
           .optional()
@@ -110,20 +118,7 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
         "drop a declaration, and changing an existing one is a conflict. " +
         "Replacing a schema destructively is not available here.",
       inputSchema: {
-        schema_document: z
-          .string()
-          .min(1)
-          .describe(
-            "The schema document, written in Brain's schema DSL \u2014 NOT JSON. " +
-              "A JSON document is rejected with `syntax error at 1:1: expected " +
-              "schema`. Example:\n\n" +
-              "namespace acme\n" +
-              "define entity_type Person { attributes {} }\n" +
-              "define entity_type Org { attributes {} }\n" +
-              "define predicate works_at { kind: Fact subject: Entity<Person> object: Entity<Org> }\n\n" +
-              "The `namespace` line must name this workspace's own namespace. " +
-              "Call get_schema first to see what is already declared.",
-          ),
+        schema_document: z.string().min(1).describe(schemaDocumentDescription),
         dry_run: z
           .boolean()
           .optional()
@@ -234,7 +229,11 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
         name: z
           .string()
           .min(1)
-          .describe("The declared name, in `namespace:name` form — e.g. `acme:prefers`."),
+          .describe(
+            "The BARE declared name, e.g. `prefers` — not `namespace:name`. " +
+              "A qualified name returns `dropped: false` and removes nothing; " +
+              "`dropped: false` also means the bare name did not exist, so check it.",
+          ),
         force: z
           .boolean()
           .optional()
@@ -285,9 +284,9 @@ export function registerSchemaTools(server: McpServer, backend: BrainBackend): v
           .string()
           .min(1)
           .describe(
-            "The complete replacement document in Brain's schema DSL — NOT " +
-              "JSON, and NOT a patch. Anything the active schema declares " +
-              "and this document omits is a removal.",
+            `${schemaDocumentDescription}
+
+This is the complete replacement document, not a patch. Anything the active schema declares and this document omits is a removal.`,
           ),
         force_drop_existing: z
           .boolean()

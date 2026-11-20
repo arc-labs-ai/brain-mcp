@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BackendError, BrainBackend } from "../../src/backend/index.js";
 import type { Config } from "../../src/config/index.js";
 import { buildServer } from "../../src/server/index.js";
@@ -15,6 +15,15 @@ const testConfig: Config = {
 
 async function connectedClient(): Promise<Client> {
   const backend = new BrainBackend(testConfig, "test-key");
+  const server = buildServer(backend, { readsLocalEnvironment: true });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const client = new Client({ name: "test", version: "0" });
+  await client.connect(clientTransport);
+  return client;
+}
+
+async function connectedClientWithBackend(backend: BrainBackend): Promise<Client> {
   const server = buildServer(backend, { readsLocalEnvironment: true });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -217,6 +226,119 @@ describe("brain-mcp server", () => {
       .required ?? []) as string[];
     expect(required).toContain("force_drop_existing");
     await client.close();
+  });
+
+  /**
+   * Query explanations and traces may be inspected without a reachable
+   * backend, so this contract belongs to the published tool schema rather
+   * than to a transport error from the request path.
+   */
+  it("requires every fusion field when explaining or tracing a query", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const fusionFields = ["k", "semantic_weight", "lexical_weight", "graph_weight"];
+
+    for (const name of ["explain_query", "trace_query"]) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      expect(tool, `${name} should be registered`).toBeDefined();
+      const schema = (
+        tool as {
+          inputSchema: {
+            properties?: Record<string, { required?: string[] }>;
+            required?: string[];
+          };
+        }
+      ).inputSchema;
+      expect(schema.properties?.fusion?.required, `${name} fusion fields`).toEqual(
+        fusionFields,
+      );
+      expect(schema.required ?? [], `${name} top-level fields`).not.toContain("fusion");
+    }
+
+    await client.close();
+  });
+
+  it("publishes closed memory edge kinds and the qualified-name filter rules", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    const edgeKinds = [
+      "caused",
+      "followed_by",
+      "derived_from",
+      "similar_to",
+      "contradicts",
+      "supports",
+      "references",
+      "part_of",
+    ];
+
+    for (const name of ["link", "unlink"]) {
+      const schema = byName.get(name)?.inputSchema as {
+        properties?: Record<string, { enum?: string[] }>;
+      };
+      expect(schema.properties?.kind?.enum, `${name} edge kinds`).toEqual(edgeKinds);
+    }
+
+    const invalid = await client.callTool({
+      name: "link",
+      arguments: { source: "m-1", target: "m-2", kind: "causes" },
+    });
+    expect(invalid.isError).toBe(true);
+    expect((invalid.content as Array<{ text?: string }>)[0]?.text).not.toContain("502");
+
+    for (const name of ["entity_relations", "traverse_entity", "list_statements"]) {
+      const schema = byName.get(name)?.inputSchema as {
+        properties?: Record<string, { description?: string }>;
+      };
+      const field =
+        name === "entity_relations"
+          ? "relation_type"
+          : name === "traverse_entity"
+            ? "relation_types"
+            : "predicate";
+      expect(schema.properties?.[field]?.description).toContain("namespace:name");
+      expect(schema.properties?.[field]?.description).toContain(
+        "A bare name is rejected",
+      );
+    }
+
+    const renameSchema = byName.get("rename_entity")?.inputSchema as {
+      properties?: Record<string, unknown>;
+    };
+    expect(renameSchema.properties).not.toHaveProperty("move_to_alias");
+    await client.close();
+  });
+
+  it("normalizes uppercase memory edge kinds before calling the backend", async () => {
+    const link = vi.fn().mockResolvedValue({ linked: true });
+    const backend = { link } as unknown as BrainBackend;
+    const client = await connectedClientWithBackend(backend);
+
+    const response = await client.callTool({
+      name: "link",
+      arguments: { source: "m-1", target: "m-2", kind: "CAUSED" },
+    });
+
+    expect(response.isError).toBeFalsy();
+    expect(link).toHaveBeenCalledWith("m-1", "m-2", "caused", undefined);
+    await client.close();
+  });
+
+  it("omits move_to_alias from the rename request body", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    try {
+      const backend = new BrainBackend(testConfig, "test-key");
+      await backend.renameEntity("e-1", "Acme Corp");
+      const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+      expect(JSON.parse(String(init.body))).toEqual({
+        new_canonical_name: "Acme Corp",
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("declares no customer_id input on any tool", async () => {

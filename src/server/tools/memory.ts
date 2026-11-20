@@ -103,7 +103,7 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
       description:
         "Ask a question, get the CURRENT answer — stale and contradicted " +
         "facts are already resolved server-side. Returns an answer shape: " +
-        "`single` (one answer), `multiple` (several are true at once — say so " +
+        "`answer_kind`: `single` (one answer), `many` (several are true at once — say so " +
         "rather than picking), or `none` (Brain holds nothing; this is a real " +
         "answer, not an error). Ranks by SIMILARITY, not recency, so a stale " +
         "claim can outrank its correction — use `statement_history` when that " +
@@ -150,11 +150,13 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
           .boolean()
           .optional()
           .describe(
-            "Return the read-pipeline trace: which retriever lanes ran, what " +
+            'Under `scope: "space"` only, return the read-pipeline trace: ' +
+              "which retriever lanes ran, what " +
               "each contributed, and where the latency went. For diagnosing " +
               "ONE bad answer — the trace reports every candidate considered, " +
               "so it is large (~100 KB over a few hundred memories) and its " +
-              "size does not follow `max_results`.",
+              "size does not follow `max_results`. Namespace-scoped recall " +
+              "silently returns no trace.",
           ),
       },
     },
@@ -188,8 +190,8 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         "stored — wrong, private, or noise. This is NOT how to update a fact: " +
         "a changed fact is another `remember`, which supersedes the old one " +
         'and keeps the chain so "what did we think before" stays answerable. ' +
-        "Soft by default (tombstone); hard delete destroys the content. Takes " +
-        "a memory id (long decimal), not a UUID.",
+        "The default is not a recoverable soft state: the memory disappears " +
+        "from every read path. Takes a memory id (long decimal), not a UUID.",
       inputSchema: {
         memory_id: z
           .string()
@@ -198,7 +200,10 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
         hard: z
           .boolean()
           .optional()
-          .describe("Immediate zeroing instead of a soft tombstone. Default false."),
+          .describe(
+            "Whether to zero the content immediately. Either mode removes the " +
+              "memory from every read path; default false.",
+          ),
       },
     },
     async ({ memory_id, hard }) => {
@@ -300,9 +305,9 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
           .number()
           .int()
           .min(1)
-          .max(200)
+          .max(100)
           .optional()
-          .describe("How many directives to consider."),
+          .describe("How many directives to consider, from 1 to 100."),
         min_confidence: z
           .number()
           .min(0)
@@ -361,7 +366,9 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
           .min(1)
           .describe(
             "The embedding, as plain floats. Its length must equal the " +
-              "deployment's `vector_dim` from `capabilities` — 384 by default.",
+              "deployment's `vector_dim` from `capabilities` — 384 by default. " +
+              "Its L2 norm must be within [0.999000, 1.001000]; normalize the " +
+              "vector before sending it.",
           ),
         model_fingerprint: z
           .string()
@@ -372,7 +379,9 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
           .describe(
             "A 16-byte id for the model that produced the vector, lowercase " +
               "hex. Brain rejects a vector whose fingerprint does not match " +
-              "the index.",
+              "the index. The value comes from the embedding model the " +
+              "deployment was indexed with; this surface does not report it, " +
+              "so get it from whoever runs the deployment.",
           ),
         session: z
           .number()
@@ -384,9 +393,12 @@ export function registerMemoryTools(server: McpServer, backend: BrainBackend): v
           .number()
           .int()
           .min(0)
-          .max(2)
+          .max(1)
           .optional()
-          .describe("0 = episodic (default), 1 = semantic, 2 = consolidated."),
+          .describe(
+            "0 = episodic (default), 1 = semantic. Consolidated memories " +
+              "come from background consolidation and cannot be written here.",
+          ),
         salience_hint: z
           .number()
           .min(0)

@@ -34,6 +34,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node -e \"require('fs').chmodSync('dist/index.js', 0o755)\"",
+    "contract:refresh": "node scripts/refresh-contract.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "format": "biome format --write .",
     "lint": "biome check .",

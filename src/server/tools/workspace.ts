@@ -246,8 +246,9 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
         "Read what has changed in this workspace since a point in the feed. " +
         "RETURNS A BOUNDED SLICE AND CLOSES — it does not stream and does " +
         "not stay open. Each call returns the events it collected plus " +
-        "`last_lsn`; pass that back as `from_lsn` next time to continue " +
-        "without gaps or repeats, so following the feed is a loop you drive. " +
+        "`last_lsn`; pass `last_lsn + 1` as `from_lsn` next time, or drop the " +
+        "first event when feeding `last_lsn` back because the starting lsn is " +
+        "included. Following the feed is a loop you drive. " +
         "An empty result is normal and means nothing happened in the window, " +
         "not that the call failed. Use it to notice writes made by another " +
         "client or by the extractor; use `list_memories` to see what is " +
@@ -259,10 +260,11 @@ export function registerWorkspaceTools(server: McpServer, backend: BrainBackend)
           .nonnegative()
           .optional()
           .describe(
-            "Resume after this log sequence number — the `last_lsn` from " +
-              "your previous call. Omitted starts at the live edge of the " +
-              "feed, so events already written are NOT returned unless you " +
-              "also set `include_history`.",
+            "Resume AT this log sequence number — `from_lsn` includes the " +
+              "event at that lsn. Pass `last_lsn + 1` to avoid one duplicate, " +
+              "or feed back `last_lsn` and drop the first event. It also " +
+              "replays history without needing `include_history`; omitted " +
+              "starts at the live edge.",
           ),
         include_history: z
           .boolean()

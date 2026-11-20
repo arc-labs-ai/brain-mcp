@@ -45,7 +45,10 @@ const statementObject = z.discriminatedUnion("kind", [
       z.object({ type: z.literal("integer"), value: z.number().int() }),
       z.object({ type: z.literal("float"), value: z.number() }),
       z.object({ type: z.literal("bool"), value: z.boolean() }),
-      z.object({ type: z.literal("unix_nanos"), value: z.number().int().nonnegative() }),
+      z.object({
+        type: z.literal("unix_nanos"),
+        value: unixNanos.describe("ISO-8601 instant or unix nanoseconds."),
+      }),
       z.object({
         type: z.literal("blob"),
         value: z.array(z.number().int().min(0).max(255)),
@@ -75,7 +78,9 @@ const statementFields = {
     .optional()
     .describe(
       "When the thing HAPPENED — distinct from when the claim is held true. " +
-        "ISO-8601 (`2026-03-01T00:00:00Z`) or unix nanoseconds.",
+        "Only set this when `kind` is `event`; other kinds use " +
+        "`valid_from_unix_nanos` / `valid_to_unix_nanos`. ISO-8601 " +
+        "(`2026-03-01T00:00:00Z`) or unix nanoseconds.",
     ),
   valid_from_unix_nanos: unixNanos
     .optional()
@@ -218,7 +223,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
           .string()
           .min(1)
           .optional()
-          .describe("Only claims using this predicate, e.g. `brain:reports_to`."),
+          .describe(
+            "Only claims using this predicate, e.g. `brain:reports_to`. The " +
+              "predicate is in `namespace:name` form — e.g. `acme:reports_to`, " +
+              "not `reports_to`. A bare name is rejected.",
+          ),
         kind: z
           .enum(["fact", "preference", "event", "attribute", "relation", "directive"])
           .optional()
@@ -281,10 +290,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
         statement_id: z.string().min(1).describe("The statement id."),
         follow_supersession: z
           .boolean()
-          .optional()
+          .default(true)
           .describe(
-            "Follow the chain to whatever currently replaces this claim, " +
-              "rather than returning the superseded version you asked for.",
+            "By default, follow the supersession chain to the current head. " +
+              "Set this to false to read the exact version you named; on that " +
+              "historical read, superseded_by identifies its replacement.",
           ),
       },
     },
@@ -310,10 +320,11 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
         relation_id: z.string().min(1).describe("The relation id."),
         follow_supersession: z
           .boolean()
-          .optional()
+          .default(true)
           .describe(
-            "Follow the chain to whatever currently replaces this relation, " +
-              "rather than returning the superseded version you asked for.",
+            "By default, follow the supersession chain to the current head. " +
+              "Set this to false to read the exact relation version you named; " +
+              "on that historical read, superseded_by identifies its replacement.",
           ),
       },
     },
@@ -466,13 +477,14 @@ export function registerKnowledgeTools(server: McpServer, backend: BrainBackend)
       },
       title: "Retract statement",
       description:
-        "Retract a claim so its CONTENT does not survive — the strongest " +
-        "removal here. For something that should never have existed: a secret " +
-        "pasted by accident, a false and harmful claim about a person. Prefer " +
-        "`delete_statement` (keeps an audit row) or `supersede_statement` " +
-        "(keeps the chain); reach for this only when the content itself is " +
-        'the problem, because it destroys the history that makes "what ' +
-        'changed" answerable.',
+        "Retract MARKS a claim for physical removal by the reclamation worker; it " +
+        "does not erase anything at call time. That worker is off by default, and " +
+        "when enabled, it waits a thirty-day grace, so the content stays readable through " +
+        "`get_statement` and `list_statements` until it runs — and on most deployments it never runs. " +
+        "Therefore, do NOT use this to remove a leaked secret or satisfy a deletion request: the " +
+        "wire protocol has no immediate-erasure path by design; operator tooling against the store itself is required. " +
+        "Prefer `delete_statement` (keeps an audit row) or `supersede_statement` (keeps the chain), because " +
+        'retract destroys the history that makes "what changed" answerable.',
       inputSchema: {
         statement_id: z.string().min(1).describe("The claim to retract."),
         reason: retireReason,

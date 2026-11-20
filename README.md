@@ -209,7 +209,7 @@ never `prefers`. A bare name is rejected. `whoami` gives you the namespace.
 | `create_statement` | `kind`, `subject`, `predicate`, `object`, `confidence?`, `event_at_unix_nanos?`, `valid_from_unix_nanos?`, `valid_to_unix_nanos?`, `session_id?`, `evidence?` | Assert a claim directly instead of waiting for extraction. `event_at` is when it HAPPENED; `valid_from`/`valid_to` are when the claim is held true. |
 | `supersede_statement` | `statement_id` + every `create_statement` field | Replace a claim with a corrected one, keeping both and the link between them. The right tool when something changed — not `delete_statement`, which loses the history of having believed it. |
 | `delete_statement` | `statement_id`, `reason?`, `message?` | Soft-tombstone a claim; the row survives for audit. |
-| `retract_statement` | `statement_id`, `reason?`, `message?` | Retract a claim so its **content** does not survive. Prefer `delete_statement` unless the content itself is the problem. |
+| `retract_statement` | `statement_id`, `reason?`, `message?` | Marks the claim for a reclamation worker that is off by default, so it is not an erasure path. |
 | `create_relation` | `relation_type`, `from_entity`, `to_entity`, `confidence?`, `valid_from_unix_nanos?`, `valid_to_unix_nanos?`, `session_id?`, `evidence?`, `properties?` | Assert a typed edge between two entities. For an untyped edge between two **memories**, use `link`. |
 | `supersede_relation` | `relation_id` + every `create_relation` field | Replace an edge with a corrected one, keeping the chain. `properties` is replaced, not merged. |
 | `delete_relation` | `relation_id`, `reason?` | Tombstone a typed edge. Traversals stop crossing it. |

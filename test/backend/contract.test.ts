@@ -1,10 +1,18 @@
 /**
- * End-to-end contract test: a real MCP client drives all four tools through the
- * server, against a real (local) HTTP backend that records every request. This
- * asserts the exact wire contract the MCP server emits to Brain's /v1/* surface
- * — method, path, credential, and body — which is the real integration risk.
- * It needs no Brain: the backend is a controlled stand-in returning the real
- * DTO shapes.
+ * End-to-end contract test: a real MCP client drives a representative set of
+ * tools through the server, against a real (local) HTTP backend that records
+ * every request.
+ *
+ * `remember`, `recall`, `forget`, `whoami` and `delete_space` are the ones
+ * chosen because between them they cover every shape the wire contract has: a
+ * write, a read, a delete, an identity call, and a destructive workspace call.
+ * The set is deliberately not every tool — route coverage is guarded by
+ * `route-coverage.test.ts` instead.
+ *
+ * This asserts the exact wire contract the MCP server emits to Brain's /v1/*
+ * surface — method, path, credential, and body — which is the real integration
+ * risk. It needs no Brain: the backend is a controlled stand-in returning the
+ * real DTO shapes.
  */
 
 import { type IncomingMessage, type Server, createServer } from "node:http";

@@ -158,11 +158,15 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
       },
       title: "Resolve entity",
       description:
-        'Map a surface form — "the Acme account", "Priya", "that repo" — onto ' +
-        "the entity it means. START HERE before `create_entity`: creating one " +
-        "that already exists is an error, and the name a person says is " +
-        'rarely the canonical one. Example: resolve_entity("the billing ' +
-        'service") before asserting anything about it.',
+        "Match a candidate name exactly, ignoring case and surrounding whitespace, " +
+        "against the canonical name or recorded aliases. Matching is not fuzzy or " +
+        "partial. Call this before `create_entity`: creating a duplicate is an " +
+        "error. Outcomes are `resolved` for one match, `ambiguous` when multiple " +
+        "candidates match, `not_found` when none match, and `created` only when " +
+        "`allow_create` is true. For `ambiguous`, use `candidate_ids` to " +
+        "disambiguate, such as with `type_hint`; do not treat it as a miss. " +
+        "`not_found` does not prove absence: use `list_entities` before creating. " +
+        "Record the short forms people actually use as aliases.",
       inputSchema: {
         candidate_name: z.string().min(1).describe("The name or mention to resolve."),
         resolution_context: z
@@ -186,10 +190,12 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
           .boolean()
           .optional()
           .describe(
-            "Mint the entity when nothing matches. Default false — resolve is " +
-              "a read. Prefer leaving this off and calling `create_entity` " +
-              "deliberately, so an unintended near-miss does not silently " +
-              "become a second entity for the same thing.",
+            "Mint the entity when nothing matches; type_hint is required for creation. " +
+              "Without type_hint, the call returns not_found and creates nothing. " +
+              "Default false — resolve is a read. " +
+              "Prefer leaving this off and calling `create_entity` deliberately, " +
+              "so an unintended near-miss does not silently become a second entity " +
+              "for the same thing.",
           ),
       },
     },
@@ -258,7 +264,9 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
           .optional()
           .describe(
             "Only follow these relation types. Omitted follows every type — " +
-              "narrow it when one kind of edge dominates the neighbourhood.",
+              "narrow it when one kind of edge dominates the neighbourhood. " +
+              "Each relation type is in `namespace:name` form — e.g. " +
+              "`acme:works_at`, not `works_at`. A bare name is rejected.",
           ),
         max_depth: z
           .number()
@@ -277,7 +285,12 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
         include_superseded: z
           .boolean()
           .optional()
-          .describe("Also follow relations that have been superseded. Default false."),
+          .describe(
+            "Also follow superseded relations. The walk returns at most one " +
+              "path per target, so a superseded edge and its replacement to " +
+              "the same node collapse to one — possibly the superseded row. " +
+              "Use `entity_relations` to see both. Default false.",
+          ),
       },
     },
     async ({
@@ -334,7 +347,11 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
           .string()
           .min(1)
           .optional()
-          .describe("Only relations of this type. Omitted returns every type."),
+          .describe(
+            "Only relations of this type. Omitted returns every type. The relation " +
+              "type is in `namespace:name` form — e.g. `acme:works_at`, not " +
+              "`works_at`. A bare name is rejected.",
+          ),
         include_superseded: z
           .boolean()
           .optional()
@@ -429,20 +446,11 @@ export function registerEntitiesTools(server: McpServer, backend: BrainBackend):
       inputSchema: {
         entity_id: z.string().min(1).describe("The entity to rename."),
         new_canonical_name: z.string().min(1).describe("The new canonical display name."),
-        move_to_alias: z
-          .boolean()
-          .optional()
-          .describe(
-            "Keep the old name as an alias. Defaults to true; pass false only " +
-              "when the old name was wrong rather than outdated.",
-          ),
       },
     },
-    async ({ entity_id, new_canonical_name, move_to_alias }) => {
+    async ({ entity_id, new_canonical_name }) => {
       try {
-        return ok(
-          await backend.renameEntity(entity_id, new_canonical_name, move_to_alias),
-        );
+        return ok(await backend.renameEntity(entity_id, new_canonical_name));
       } catch (err) {
         return fail(err);
       }
