@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/arc-labs-ai/brain-mcp/compare/v0.4.2...v0.4.3) (2026-11-20)
+
+
+### Refactoring
+
+* **release:** publish npm and the image from one workflow ([#20](https://github.com/arc-labs-ai/brain-mcp/issues/20)) ([729925b](https://github.com/arc-labs-ai/brain-mcp/commit/729925b673ed4db58d1a8bd25e5123878898c000))
+
 ## [0.4.2](https://github.com/arc-labs-ai/brain-mcp/compare/v0.4.1...v0.4.2) (2026-11-13)
 
 
